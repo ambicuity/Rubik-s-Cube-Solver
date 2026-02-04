@@ -10,6 +10,7 @@ import { cubeValidator } from './validator.js';
 import { cubeSolver } from './solver.js';
 import { cubeVisualizer } from './visualizer.js';
 import { geminiClient } from './geminiClient.js';
+import { ThreeScene } from './threeScene.js';
 
 class UIController {
     constructor() {
@@ -19,6 +20,10 @@ class UIController {
 
         this.initializeElements();
         this.attachEventListeners();
+
+        // Initialize 3D Scene
+        this.threeScene = new ThreeScene('cube-3d-container');
+
         this.updateUI();
     }
 
@@ -91,6 +96,7 @@ class UIController {
         let stabilityCounter = 0;
         let lastColorsJson = '';
         const STABILITY_THRESHOLD = 5; // Frames required for stability
+        const videoContainer = document.querySelector('.video-container'); // Get container
 
         // Update preview every 200ms for smoother auto-detection
         this.detectionInterval = setInterval(() => {
@@ -102,17 +108,12 @@ class UIController {
                     this.updateGridOverlay(colors);
 
                     // Auto-detect Face based on Center Color
-                    // Center piece is at index 4 (row 1, col 1) in a flat array of 9, 
-                    // or we can use the dedicated helper if we mapped strict faces.
-                    // For now, let's look at the center sticker (index 4).
                     const centerPiece = colors.find(c => c.position.row === 1 && c.position.col === 1);
-
                     if (centerPiece && centerPiece.color !== 'unknown') {
                         this.updateFaceFromCenter(centerPiece.color);
                     }
 
                     // Auto-Capture Logic
-                    // 1. Check if we have valid colors (no unknown)
                     const hasUnknown = colors.some(c => c.color === 'unknown');
 
                     if (!hasUnknown) {
@@ -122,6 +123,14 @@ class UIController {
                         } else {
                             stabilityCounter = 0;
                             lastColorsJson = currentJson;
+                            // Reset visual state
+                            videoContainer.classList.remove('scanning-locked');
+                            videoContainer.classList.add('scanning-active');
+                        }
+
+                        // Visual Feedback: Border turns green as we lock
+                        if (stabilityCounter > 2) {
+                            videoContainer.classList.add('scanning-locked');
                         }
 
                         // If stable and not already captured for this face
@@ -132,13 +141,19 @@ class UIController {
                             // Only auto-capture if this face isn't already filled
                             if (!faceData && !this.isCapturing) {
                                 this.isCapturing = true;
-                                this.handleCaptureFace();
+                                this.handleCaptureFace(); // This now includes validation
+
                                 // Reset capturing flag after a delay to prevent double triggers
-                                setTimeout(() => { this.isCapturing = false; }, 2000);
+                                setTimeout(() => {
+                                    this.isCapturing = false;
+                                    stabilityCounter = 0; // Reset stability
+                                }, 2000);
                             }
                         }
                     } else {
                         stabilityCounter = 0;
+                        videoContainer.classList.remove('scanning-locked');
+                        videoContainer.classList.add('scanning-active');
                     }
                 }
             }
@@ -316,7 +331,12 @@ class UIController {
      * Get explanation from Gemini
      */
     async getExplanation(moves) {
-        this.geminiExplanation.innerHTML = '<p class="loading-text">Loading explanation from Gemini...</p>';
+        this.geminiExplanation.innerHTML = `
+            <div class="loading-container">
+                <div class="cube-loader"></div>
+                <p>Asking Gemini for help...</p>
+            </div>
+        `;
 
         try {
             const groupedMoves = cubeSolver.groupMovesByPhase(moves);
@@ -348,7 +368,22 @@ class UIController {
         // Update current face label
         this.currentFaceLabel.textContent = cubeState.constructor.getFaceLabel(progress.currentFace);
 
-        // Update face dots
+        // Update 3D Preview Rotation
+        if (this.threeScene) {
+            this.threeScene.rotateToFace(progress.currentFace);
+
+            // Update stickers
+            const allFaces = cubeState.getAllFaces();
+            Object.entries(allFaces).forEach(([faceKey, colors]) => {
+                if (colors) {
+                    colors.forEach((colorData, index) => {
+                        this.threeScene.updateSticker(faceKey, index, colorData.color);
+                    });
+                }
+            });
+        }
+
+        // Update face dots (Legacy/Fallback)
         this.faceDots.forEach(dot => {
             const face = dot.dataset.face;
             const faceData = cubeState.getFaceData(face);

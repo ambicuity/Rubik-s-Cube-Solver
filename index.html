@@ -1,18 +1,23 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rubik's Cube Solver | Solution & Visualization</title>
-    <meta name="description" content="Capture your cube with webcam, detect colors, and get step-by-step solutions with this automated Rubik's Cube Solver.">
-    
+    <meta name="description"
+        content="Capture your cube with webcam, detect colors, and get step-by-step solutions with this automated Rubik's Cube Solver.">
+
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
-    
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap"
+        rel="stylesheet">
+
     <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
     <!-- Background Animation -->
     <div class="blob-container">
@@ -29,29 +34,28 @@
 
         <main>
             <!-- Step 1: Webcam Capture -->
+            <!-- CAPTURE SECTION -->
             <section id="capture-section" class="section active">
-                <h2>Step 1: Capture Your Cube</h2>
-                <div class="capture-container">
+                <div class="glass-card">
+                    <h2>📷 Scan Cube</h2>
+                    <p class="instruction">Center the cube face in the grid below.</p>
+
                     <div class="video-container">
                         <video id="video" autoplay playsinline></video>
-                        <canvas id="overlay-canvas"></canvas>
-                        <div class="grid-overlay">
-                            <div class="grid-cell" data-row="0" data-col="0"></div>
-                            <div class="grid-cell" data-row="0" data-col="1"></div>
-                            <div class="grid-cell" data-row="0" data-col="2"></div>
-                            <div class="grid-cell" data-row="1" data-col="0"></div>
-                            <div class="grid-cell" data-row="1" data-col="1"></div>
-                            <div class="grid-cell" data-row="1" data-col="2"></div>
-                            <div class="grid-cell" data-row="2" data-col="0"></div>
-                            <div class="grid-cell" data-row="2" data-col="1"></div>
-                            <div class="grid-cell" data-row="2" data-col="2"></div>
-                        </div>
+                        <canvas id="overlay"></canvas>
+                        <div class="scan-guide"></div>
                     </div>
-                    
+
                     <div class="capture-controls">
                         <div class="face-indicator">
-                            <span id="current-face-label">Current Face: <strong id="current-face">Front (F)</strong></span>
-                            <div class="face-progress">
+                            <span id="current-face-label">Current Face: <strong id="current-face">Front
+                                    (F)</strong></span>
+                            <!-- 3D Preview Container -->
+                            <div id="cube-3d-container"
+                                style="width: 200px; height: 200px; margin: 1rem auto; display: block;"></div>
+
+                            <!-- Legacy dots hidden or kept for small devices? Let's hide them -->
+                            <div class="face-progress hidden">
                                 <span class="face-dot" data-face="F">F</span>
                                 <span class="face-dot" data-face="R">R</span>
                                 <span class="face-dot" data-face="B">B</span>
@@ -60,11 +64,15 @@
                                 <span class="face-dot" data-face="D">D</span>
                             </div>
                         </div>
-                        
-                        <button id="start-camera-btn" class="btn btn-primary">Start Camera</button>
-                        <button id="capture-face-btn" class="btn btn-success" disabled>Capture This Face</button>
-                        <button id="recapture-btn" class="btn btn-secondary" disabled>Recapture Last Face</button>
-                        <button id="reset-capture-btn" class="btn btn-warning">Reset All</button>
+
+                        <div class="primary-actions">
+                            <button id="start-camera-btn" class="btn btn-primary">Start Camera</button>
+                            <button id="capture-face-btn" class="btn btn-success" disabled>Capture Face</button>
+                            <button id="recapture-btn" class="btn btn-secondary" disabled>Recapture</button>
+                        </div>
+                        <div class="secondary-actions mt-2">
+                            <button id="reset-capture-btn" class="btn btn-danger">Reset All Progress</button>
+                        </div>
                     </div>
                 </div>
 
@@ -97,7 +105,7 @@
                         </div>
                         <div id="solution-moves" class="moves-list hidden"></div>
                     </div>
-                    
+
                     <div class="explanation-panel">
                         <h3>📖 Step-by-Step Explanation</h3>
                         <div id="gemini-explanation" class="explanation-content">
@@ -129,4 +137,5 @@
     <script type="module" src="src/geminiClient.js"></script>
     <script type="module" src="src/ui.js"></script>
 </body>
+
 </html>

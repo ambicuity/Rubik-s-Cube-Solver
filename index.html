@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rubik's Cube Solver</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎲 Rubik's Cube Solver</h1>
+            <p class="subtitle">Capture your cube with webcam, detect colors, and get step-by-step solutions</p>
+        </header>
+
+        <main>
+            <!-- Step 1: Webcam Capture -->
+            <section id="capture-section" class="section active">
+                <h2>Step 1: Capture Your Cube</h2>
+                <div class="capture-container">
+                    <div class="video-container">
+                        <video id="video" autoplay playsinline></video>
+                        <canvas id="overlay-canvas"></canvas>
+                        <div class="grid-overlay">
+                            <div class="grid-cell" data-row="0" data-col="0"></div>
+                            <div class="grid-cell" data-row="0" data-col="1"></div>
+                            <div class="grid-cell" data-row="0" data-col="2"></div>
+                            <div class="grid-cell" data-row="1" data-col="0"></div>
+                            <div class="grid-cell" data-row="1" data-col="1"></div>
+                            <div class="grid-cell" data-row="1" data-col="2"></div>
+                            <div class="grid-cell" data-row="2" data-col="0"></div>
+                            <div class="grid-cell" data-row="2" data-col="1"></div>
+                            <div class="grid-cell" data-row="2" data-col="2"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="capture-controls">
+                        <div class="face-indicator">
+                            <span id="current-face-label">Current Face: <strong id="current-face">Front (F)</strong></span>
+                            <div class="face-progress">
+                                <span class="face-dot" data-face="F">F</span>
+                                <span class="face-dot" data-face="R">R</span>
+                                <span class="face-dot" data-face="B">B</span>
+                                <span class="face-dot" data-face="L">L</span>
+                                <span class="face-dot" data-face="U">U</span>
+                                <span class="face-dot" data-face="D">D</span>
+                            </div>
+                        </div>
+                        
+                        <button id="start-camera-btn" class="btn btn-primary">Start Camera</button>
+                        <button id="capture-face-btn" class="btn btn-success" disabled>Capture This Face</button>
+                        <button id="recapture-btn" class="btn btn-secondary" disabled>Recapture Last Face</button>
+                        <button id="reset-capture-btn" class="btn btn-warning">Reset All</button>
+                    </div>
+                </div>
+
+                <div id="error-message" class="error-message hidden"></div>
+            </section>
+
+            <!-- Step 2: Cube Visualization -->
+            <section id="visualization-section" class="section">
+                <h2>Step 2: Verify Cube State</h2>
+                <div class="cube-display">
+                    <div id="cube-2d-view" class="cube-2d">
+                        <!-- 2D cube net will be generated here -->
+                    </div>
+                    <div class="verification-controls">
+                        <button id="validate-btn" class="btn btn-primary">Validate Cube State</button>
+                        <button id="back-to-capture-btn" class="btn btn-secondary">Back to Capture</button>
+                    </div>
+                    <div id="validation-result" class="validation-result hidden"></div>
+                </div>
+            </section>
+
+            <!-- Step 3: Solution -->
+            <section id="solution-section" class="section">
+                <h2>Step 3: Solution</h2>
+                <div class="solution-container">
+                    <div class="solution-display">
+                        <div id="solving-status" class="status-message">
+                            <div class="spinner"></div>
+                            <span>Computing solution...</span>
+                        </div>
+                        <div id="solution-moves" class="moves-list hidden"></div>
+                    </div>
+                    
+                    <div class="explanation-panel">
+                        <h3>📖 Step-by-Step Explanation</h3>
+                        <div id="gemini-explanation" class="explanation-content">
+                            <p class="loading-text">Loading explanation from Gemini...</p>
+                        </div>
+                    </div>
+
+                    <div class="solution-controls">
+                        <button id="solve-btn" class="btn btn-primary">Solve Cube</button>
+                        <button id="new-cube-btn" class="btn btn-secondary">Solve Another Cube</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Built with ❤️ for GitHub Pages | Uses WebRTC, Canvas API, and Google Gemini</p>
+            <p class="tech-stack">HTML • CSS • JavaScript • No Backend Required</p>
+        </footer>
+    </div>
+
+    <!-- JavaScript Modules -->
+    <script type="module" src="src/camera.js"></script>
+    <script type="module" src="src/colorDetection.js"></script>
+    <script type="module" src="src/cubeState.js"></script>
+    <script type="module" src="src/validator.js"></script>
+    <script type="module" src="src/solver.js"></script>
+    <script type="module" src="src/visualizer.js"></script>
+    <script type="module" src="src/geminiClient.js"></script>
+    <script type="module" src="src/ui.js"></script>
+</body>
+</html>

@@ -10,21 +10,37 @@ import { cubeValidator } from './validator.js';
 import { cubeSolver } from './solver.js';
 import { cubeVisualizer } from './visualizer.js';
 import { geminiClient } from './geminiClient.js';
-import { ThreeScene } from './threeScene.js';
+// Dynamic import used instead of static to prevent crash if Three.js fails to load
 
 class UIController {
     constructor() {
         this.currentSection = 'capture';
         this.isCapturing = false;
         this.detectionInterval = null;
+        this.threeScene = null;
 
         this.initializeElements();
         this.attachEventListeners();
 
-        // Initialize 3D Scene
-        this.threeScene = new ThreeScene('cube-3d-container');
+        // Initialize 3D Scene asynchronously
+        this.initialize3D();
 
         this.updateUI();
+    }
+
+    async initialize3D() {
+        try {
+            const module = await import('./threeScene.js');
+            this.ThreeScene = module.ThreeScene;
+            this.threeScene = new this.ThreeScene('cube-3d-container');
+            this.updateUI(); // Update once loaded
+            console.log('3D Scene initialized successfully');
+        } catch (error) {
+            console.warn('Failed to initialize 3D scene. This might be due to network issues loading Three.js.', error);
+            // Hide the 3D container if it fails
+            const container = document.getElementById('cube-3d-container');
+            if (container) container.style.display = 'none';
+        }
     }
 
     /**

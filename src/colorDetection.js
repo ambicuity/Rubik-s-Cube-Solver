@@ -8,14 +8,24 @@ export class ColorDetector {
         this.canvas = document.createElement('canvas');
         this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
 
-        // HSV ranges for Rubik's Cube colors
+        // HSV ranges for Rubik's Cube colors (Broadened for webcam)
         this.colorRanges = {
-            white: { h: [0, 360], s: [0, 30], v: [70, 100] },
-            yellow: { h: [40, 70], s: [40, 100], v: [70, 100] },
-            red: { h: [0, 15], s: [40, 100], v: [40, 100] },
-            orange: { h: [15, 40], s: [40, 100], v: [50, 100] },
-            green: { h: [70, 160], s: [30, 100], v: [30, 100] },
-            blue: { h: [160, 260], s: [30, 100], v: [30, 100] }
+            white: { h: [0, 360], s: [0, 40], v: [40, 100] }, // Lower V for shadow, Higher S for warm light
+            yellow: { h: [40, 75], s: [40, 100], v: [60, 100] },
+            red: { h: [0, 15], s: [50, 100], v: [50, 100] }, // Also need to handle > 330
+            orange: { h: [15, 40], s: [50, 100], v: [50, 100] },
+            green: { h: [75, 160], s: [30, 100], v: [30, 100] },
+            blue: { h: [160, 270], s: [40, 100], v: [30, 100] }
+        };
+
+        // Reference points for Nearest Neighbor fallback
+        this.colorCenters = {
+            white: { h: 0, s: 0, v: 100 },
+            yellow: { h: 60, s: 100, v: 100 },
+            red: { h: 0, s: 100, v: 100 },
+            orange: { h: 30, s: 100, v: 100 },
+            green: { h: 120, s: 100, v: 100 },
+            blue: { h: 220, s: 100, v: 100 }
         };
     }
 
@@ -49,10 +59,12 @@ export class ColorDetector {
     }
 
     /**
-     * Detect color from HSV values
+     * Detect color from HSV values with Fallback
      */
     detectColor(hsv) {
         const { h, s, v } = hsv;
+
+        // 1. Try Strict Range Matching first
         let bestMatch = 'unknown';
         let bestScore = -Infinity;
 
@@ -61,34 +73,23 @@ export class ColorDetector {
 
             // Check hue (circular range)
             const [hMin, hMax] = range.h;
-            if (colorName === 'red' && h > 330) {
-                // Handle red wrapping around 360
-                score += 100;
-            } else if (h >= hMin && h <= hMax) {
-                const hCenter = (hMin + hMax) / 2;
-                const hDistance = Math.abs(h - hCenter);
-                score += 100 - (hDistance / ((hMax - hMin) / 2)) * 100;
+            let inHue = false;
+
+            if (colorName === 'red') {
+                // Red special case: 0-15 or 330-360
+                if ((h >= 0 && h <= 15) || (h >= 330 && h <= 360)) inHue = true;
+            } else {
+                if (h >= hMin && h <= hMax) inHue = true;
             }
 
-            // Check saturation
+            if (inHue) score += 100;
+
+            // Saturation & Value
             const [sMin, sMax] = range.s;
-            if (s >= sMin && s <= sMax) {
-                const sCenter = (sMin + sMax) / 2;
-                const sDistance = Math.abs(s - sCenter);
-                score += 50 - (sDistance / ((sMax - sMin) / 2)) * 50;
-            } else {
-                score -= 50;
-            }
-
-            // Check value
             const [vMin, vMax] = range.v;
-            if (v >= vMin && v <= vMax) {
-                const vCenter = (vMin + vMax) / 2;
-                const vDistance = Math.abs(v - vCenter);
-                score += 50 - (vDistance / ((vMax - vMin) / 2)) * 50;
-            } else {
-                score -= 50;
-            }
+
+            if (s >= sMin && s <= sMax) score += 50;
+            if (v >= vMin && v <= vMax) score += 50;
 
             if (score > bestScore) {
                 bestScore = score;
@@ -96,7 +97,46 @@ export class ColorDetector {
             }
         }
 
-        return bestScore > 50 ? bestMatch : 'unknown';
+        // If we have a good match (score >= 200 implies at least Hue + one other matched), return it
+        // Or if score is decent (150+)
+        if (bestScore >= 150) return bestMatch;
+
+        // 2. Fallback: Nearest Neighbor in (weighted) H S V space
+        // We define distance D = sqrt( (dH*wH)^2 + (dS*wS)^2 + (dV*wV)^2 )
+        let minDist = Infinity;
+        let nearestColor = 'unknown';
+
+        for (const [colorName, center] of Object.entries(this.colorCenters)) {
+            // Hue distance (circular)
+            let dh = Math.abs(h - center.h);
+            if (dh > 180) dh = 360 - dh;
+
+            // Weights: Hue is most important for colors, Saturation for White
+            let wH = 1, wS = 1, wV = 1;
+
+            if (colorName === 'white') {
+                wH = 0.1; // Hue doesn't matter for white
+                wS = 3.0; // Low saturation is key for white
+                wV = 0.5;
+            } else {
+                wH = 2.0; // Hue is critical for colors
+                wS = 1.0;
+                wV = 0.5; // Value matters least (lighting)
+            }
+
+            const dist = Math.sqrt(
+                Math.pow(dh * wH, 2) +
+                Math.pow((s - center.s) * wS, 2) +
+                Math.pow((v - center.v) * wV, 2)
+            );
+
+            if (dist < minDist) {
+                minDist = dist;
+                nearestColor = colorName;
+            }
+        }
+
+        return nearestColor;
     }
 
     /**

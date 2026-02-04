@@ -16,7 +16,7 @@ class UIController {
         this.currentSection = 'capture';
         this.isCapturing = false;
         this.detectionInterval = null;
-        
+
         this.initializeElements();
         this.attachEventListeners();
         this.updateUI();
@@ -73,7 +73,7 @@ class UIController {
     async handleStartCamera() {
         this.showError('');
         const result = await cameraManager.startCamera();
-        
+
         if (result.success) {
             this.startCameraBtn.textContent = 'Camera Active';
             this.startCameraBtn.disabled = true;
@@ -88,17 +88,102 @@ class UIController {
      * Start real-time color detection preview
      */
     startColorDetection() {
-        // Update preview every 500ms
+        let stabilityCounter = 0;
+        let lastColorsJson = '';
+        const STABILITY_THRESHOLD = 5; // Frames required for stability
+
+        // Update preview every 200ms for smoother auto-detection
         this.detectionInterval = setInterval(() => {
             if (cameraManager.isCameraActive()) {
                 const video = cameraManager.getVideoElement();
                 const colors = colorDetector.detectFaceColors(video);
-                
+
                 if (colors) {
                     this.updateGridOverlay(colors);
+
+                    // Auto-detect Face based on Center Color
+                    // Center piece is at index 4 (row 1, col 1) in a flat array of 9, 
+                    // or we can use the dedicated helper if we mapped strict faces.
+                    // For now, let's look at the center sticker (index 4).
+                    const centerPiece = colors.find(c => c.position.row === 1 && c.position.col === 1);
+
+                    if (centerPiece && centerPiece.color !== 'unknown') {
+                        this.updateFaceFromCenter(centerPiece.color);
+                    }
+
+                    // Auto-Capture Logic
+                    // 1. Check if we have valid colors (no unknown)
+                    const hasUnknown = colors.some(c => c.color === 'unknown');
+
+                    if (!hasUnknown) {
+                        const currentJson = JSON.stringify(colors.map(c => c.color));
+                        if (currentJson === lastColorsJson) {
+                            stabilityCounter++;
+                        } else {
+                            stabilityCounter = 0;
+                            lastColorsJson = currentJson;
+                        }
+
+                        // If stable and not already captured for this face
+                        if (stabilityCounter >= STABILITY_THRESHOLD) {
+                            const currentFace = cubeState.getCurrentFace();
+                            const faceData = cubeState.getFaceData(currentFace);
+
+                            // Only auto-capture if this face isn't already filled
+                            if (!faceData && !this.isCapturing) {
+                                this.isCapturing = true;
+                                this.handleCaptureFace();
+                                // Reset capturing flag after a delay to prevent double triggers
+                                setTimeout(() => { this.isCapturing = false; }, 2000);
+                            }
+                        }
+                    } else {
+                        stabilityCounter = 0;
+                    }
                 }
             }
-        }, 500);
+        }, 200);
+    }
+
+    /**
+     * Update the current face selection based on the detected center color
+     */
+    updateFaceFromCenter(color) {
+        // Standard Rubik's Cube Color Scheme
+        // White: Up (U)
+        // Yellow: Down (D)
+        // Green: Front (F)
+        // Blue: Back (B)
+        // Red: Right (R)
+        // Orange: Left (L)
+        // Note: This assumes standard orientation relative to the user holding it.
+        // We will map center colors to Faces assuming the user wants to populate that Face.
+
+        const colorMap = {
+            'white': 'U',
+            'yellow': 'D',
+            'green': 'F',
+            'blue': 'B',
+            'red': 'R',
+            'orange': 'L'
+        };
+
+        const detectedFace = colorMap[color];
+        if (detectedFace) {
+            // Update UI to show we detected this face
+            // We only switch if the user hasn't locked it, but for "Auto" feel, we switch.
+            // However, we need to be careful not to jump around too much.
+            // Let's just update the label for now, or use `cubeState` to set current face?
+            // `cubeState` manages the *sequence*. 
+            // If we want "Random Access" capture, we need to update `cubeState.currentFace`.
+
+            if (this.currentDetectedCenter !== color) {
+                this.currentDetectedCenter = color;
+                // Ideally we update the internal state to point to this face
+                cubeState.currentFace = detectedFace;
+                this.updateUI();
+            }
+        }
     }
 
     /**
@@ -120,7 +205,7 @@ class UIController {
     async handleCaptureFace() {
         const video = cameraManager.getVideoElement();
         const colors = colorDetector.detectFaceColors(video);
-        
+
         if (!colors) {
             this.showError('Failed to detect colors. Please ensure the cube is properly positioned.');
             return;
@@ -141,9 +226,9 @@ class UIController {
         // Capture the face
         const currentFace = cubeState.getCurrentFace();
         cubeState.captureFace(currentFace, colors);
-        
+
         this.updateUI();
-        
+
         // Check if all faces captured
         if (cubeState.isComplete()) {
             this.showError('All faces captured! Click "Validate Cube State" to proceed.', 'success');
@@ -179,7 +264,7 @@ class UIController {
     handleValidate() {
         const validation = cubeValidator.validate(cubeState);
         const summary = cubeValidator.getValidationSummary(validation);
-        
+
         this.validationResult.className = `validation-result ${summary.type}`;
         this.validationResult.innerHTML = `
             <h4>${summary.message}</h4>
@@ -259,17 +344,17 @@ class UIController {
      */
     updateUI() {
         const progress = cubeState.getProgress();
-        
+
         // Update current face label
         this.currentFaceLabel.textContent = cubeState.constructor.getFaceLabel(progress.currentFace);
-        
+
         // Update face dots
         this.faceDots.forEach(dot => {
             const face = dot.dataset.face;
             const faceData = cubeState.getFaceData(face);
-            
+
             dot.classList.remove('active', 'completed');
-            
+
             if (faceData) {
                 dot.classList.add('completed');
             } else if (face === progress.currentFace) {
@@ -311,7 +396,7 @@ class UIController {
 
         this.errorMessage.textContent = message;
         this.errorMessage.className = 'error-message';
-        
+
         if (type === 'warning') {
             this.errorMessage.style.background = '#fef3c7';
             this.errorMessage.style.color = '#92400e';
@@ -321,7 +406,7 @@ class UIController {
             this.errorMessage.style.color = '#065f46';
             this.errorMessage.style.borderColor = '#10b981';
         }
-        
+
         this.errorMessage.classList.remove('hidden');
     }
 }

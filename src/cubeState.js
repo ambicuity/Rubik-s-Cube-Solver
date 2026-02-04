@@ -5,33 +5,50 @@
 
 export class CubeState {
     constructor() {
-        this.faces = {
-            F: null, // Front - typically white
-            R: null, // Right - typically red
-            B: null, // Back - typically yellow
-            L: null, // Left - typically orange
-            U: null, // Up - typically blue
-            D: null  // Down - typically green
-        };
-        
+        this.reset();
         this.faceOrder = ['F', 'R', 'B', 'L', 'U', 'D'];
-        this.currentFaceIndex = 0;
+    }
+
+    reset() {
+        this.state = {
+            U: null, // Up (White)
+            D: null, // Down (Yellow)
+            L: null, // Left (Orange)
+            R: null, // Right (Red)
+            F: null, // Front (Green)
+            B: null  // Back (Blue)
+        };
+        this._currentFace = 'F'; // Start with Front
         this.captureHistory = [];
+        this.currentFaceIndex = 0; // Legacy index for manual flow if needed
+    }
+
+    set currentFace(face) {
+        if (['U', 'D', 'L', 'R', 'F', 'B'].includes(face)) {
+            this._currentFace = face;
+            // Update legacy index to match
+            this.currentFaceIndex = this.faceOrder.indexOf(face);
+        }
+    }
+
+    get currentFace() {
+        return this._currentFace;
     }
 
     /**
-     * Get current face being captured
+     * Get current face being captured (Legacy compat)
      */
     getCurrentFace() {
-        return this.faceOrder[this.currentFaceIndex];
+        return this._currentFace;
     }
 
     /**
      * Get next face to capture
      */
     getNextFace() {
-        if (this.currentFaceIndex < this.faceOrder.length - 1) {
-            return this.faceOrder[this.currentFaceIndex + 1];
+        const idx = this.faceOrder.indexOf(this._currentFace);
+        if (idx < this.faceOrder.length - 1) {
+            return this.faceOrder[idx + 1];
         }
         return null;
     }
@@ -40,31 +57,32 @@ export class CubeState {
      * Check if all faces are captured
      */
     isComplete() {
-        return Object.values(this.faces).every(face => face !== null);
+        return Object.values(this.state).every(face => face !== null);
     }
 
     /**
      * Get number of captured faces
      */
     getCapturedCount() {
-        return Object.values(this.faces).filter(face => face !== null).length;
+        return Object.values(this.state).filter(face => face !== null).length;
     }
 
     /**
      * Capture face data
      */
     captureFace(faceKey, colors) {
-        this.faces[faceKey] = colors;
+        this.state[faceKey] = colors;
         this.captureHistory.push({
             face: faceKey,
             colors: colors,
             timestamp: Date.now()
         });
 
-        // Move to next face
-        if (this.currentFaceIndex < this.faceOrder.length - 1) {
-            this.currentFaceIndex++;
-        }
+        // Auto-advance logic:
+        // For auto-detect workflow, we stick with what the camera sees.
+        // But for manual workflow, we advance the suggested face.
+        // We do NOT forcefully change _currentFace here because auto-detect will handle it.
+        // But we increment index if we perfectly match the sequence.
     }
 
     /**
@@ -73,22 +91,12 @@ export class CubeState {
     recaptureLastFace() {
         if (this.captureHistory.length > 0) {
             const lastCapture = this.captureHistory.pop();
-            this.faces[lastCapture.face] = null;
+            this.state[lastCapture.face] = null;
+            this._currentFace = lastCapture.face;
             this.currentFaceIndex = this.faceOrder.indexOf(lastCapture.face);
             return true;
         }
         return false;
-    }
-
-    /**
-     * Reset all captures
-     */
-    reset() {
-        Object.keys(this.faces).forEach(key => {
-            this.faces[key] = null;
-        });
-        this.currentFaceIndex = 0;
-        this.captureHistory = [];
     }
 
     /**
@@ -101,16 +109,16 @@ export class CubeState {
         }
 
         let stateString = '';
-        
+
         // Order: U, R, F, D, L, B (standard cube notation)
         const standardOrder = ['U', 'R', 'F', 'D', 'L', 'B'];
-        
+
         for (const face of standardOrder) {
-            const faceData = this.faces[face];
+            const faceData = this.state[face];
             if (!faceData) {
                 return null;
             }
-            
+
             // Convert color names to notation
             for (const cell of faceData) {
                 stateString += this.colorToNotation(cell.color);
@@ -139,27 +147,30 @@ export class CubeState {
      * Get face data for visualization
      */
     getFaceData(faceKey) {
-        return this.faces[faceKey];
+        return this.state[faceKey];
     }
 
     /**
      * Get all faces data
      */
     getAllFaces() {
-        return { ...this.faces };
+        return { ...this.state };
     }
 
     /**
-     * Get progress information
+     * Get progress
      */
     getProgress() {
+        let completed = 0;
+
+        this.faceOrder.forEach(face => {
+            if (this.state[face]) completed++;
+        });
+
         return {
-            current: this.currentFaceIndex,
-            total: this.faceOrder.length,
-            completed: this.getCapturedCount(),
-            isComplete: this.isComplete(),
-            currentFace: this.getCurrentFace(),
-            nextFace: this.getNextFace()
+            completed,
+            total: 6,
+            currentFace: this._currentFace
         };
     }
 

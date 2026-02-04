@@ -7,7 +7,7 @@ export class ColorDetector {
     constructor() {
         this.canvas = document.createElement('canvas');
         this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
-        
+
         // HSV ranges for Rubik's Cube colors
         this.colorRanges = {
             white: { h: [0, 360], s: [0, 30], v: [70, 100] },
@@ -105,14 +105,14 @@ export class ColorDetector {
     sampleColorFromRegion(video, x, y, width, height) {
         this.canvas.width = width;
         this.canvas.height = height;
-        
+
         // Draw video frame to canvas
         this.ctx.drawImage(video, x, y, width, height, 0, 0, width, height);
-        
+
         // Get pixel data
         const imageData = this.ctx.getImageData(0, 0, width, height);
         const data = imageData.data;
-        
+
         // Calculate average color, ignoring outliers
         const colors = [];
         for (let i = 0; i < data.length; i += 4) {
@@ -199,6 +199,35 @@ export class ColorDetector {
             orange: 'O'
         };
         return mapping[colorName] || '?';
+    }
+
+    /**
+     * Get the detected color of the center piece
+     */
+    getCenterPieceColor(video) {
+        const videoWidth = video.videoWidth;
+        const videoHeight = video.videoHeight;
+
+        if (!videoWidth || !videoHeight) return null;
+
+        const gridSize = Math.min(videoWidth, videoHeight) * 0.6;
+        const cellSize = gridSize / 3;
+
+        // Center cell is at index (1, 1)
+        const centerX = (videoWidth - gridSize) / 2 + cellSize * 1.5;
+        const centerY = (videoHeight - gridSize) / 2 + cellSize * 1.5;
+        const sampleSize = cellSize * 0.5;
+
+        const rgb = this.sampleColorFromRegion(
+            video,
+            centerX - sampleSize / 2,
+            centerY - sampleSize / 2,
+            sampleSize,
+            sampleSize
+        );
+
+        const hsv = this.rgbToHsv(rgb.r, rgb.g, rgb.b);
+        return this.detectColor(hsv);
     }
 }
 

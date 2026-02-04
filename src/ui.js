@@ -1,0 +1,332 @@
+/**
+ * ui.js - Main UI controller
+ * Orchestrates all components and handles user interactions
+ */
+
+import { cameraManager } from './camera.js';
+import { colorDetector } from './colorDetection.js';
+import { cubeState } from './cubeState.js';
+import { cubeValidator } from './validator.js';
+import { cubeSolver } from './solver.js';
+import { cubeVisualizer } from './visualizer.js';
+import { geminiClient } from './geminiClient.js';
+
+class UIController {
+    constructor() {
+        this.currentSection = 'capture';
+        this.isCapturing = false;
+        this.detectionInterval = null;
+        
+        this.initializeElements();
+        this.attachEventListeners();
+        this.updateUI();
+    }
+
+    /**
+     * Initialize DOM element references
+     */
+    initializeElements() {
+        // Buttons
+        this.startCameraBtn = document.getElementById('start-camera-btn');
+        this.captureFaceBtn = document.getElementById('capture-face-btn');
+        this.recaptureBtn = document.getElementById('recapture-btn');
+        this.resetCaptureBtn = document.getElementById('reset-capture-btn');
+        this.validateBtn = document.getElementById('validate-btn');
+        this.backToCaptureBtn = document.getElementById('back-to-capture-btn');
+        this.solveBtn = document.getElementById('solve-btn');
+        this.newCubeBtn = document.getElementById('new-cube-btn');
+
+        // Display elements
+        this.currentFaceLabel = document.getElementById('current-face');
+        this.errorMessage = document.getElementById('error-message');
+        this.validationResult = document.getElementById('validation-result');
+        this.solvingStatus = document.getElementById('solving-status');
+        this.solutionMoves = document.getElementById('solution-moves');
+        this.geminiExplanation = document.getElementById('gemini-explanation');
+
+        // Sections
+        this.captureSection = document.getElementById('capture-section');
+        this.visualizationSection = document.getElementById('visualization-section');
+        this.solutionSection = document.getElementById('solution-section');
+
+        // Face dots
+        this.faceDots = document.querySelectorAll('.face-dot');
+    }
+
+    /**
+     * Attach event listeners
+     */
+    attachEventListeners() {
+        this.startCameraBtn.addEventListener('click', () => this.handleStartCamera());
+        this.captureFaceBtn.addEventListener('click', () => this.handleCaptureFace());
+        this.recaptureBtn.addEventListener('click', () => this.handleRecapture());
+        this.resetCaptureBtn.addEventListener('click', () => this.handleReset());
+        this.validateBtn.addEventListener('click', () => this.handleValidate());
+        this.backToCaptureBtn.addEventListener('click', () => this.showSection('capture'));
+        this.solveBtn.addEventListener('click', () => this.handleSolve());
+        this.newCubeBtn.addEventListener('click', () => this.handleNewCube());
+    }
+
+    /**
+     * Handle start camera
+     */
+    async handleStartCamera() {
+        this.showError('');
+        const result = await cameraManager.startCamera();
+        
+        if (result.success) {
+            this.startCameraBtn.textContent = 'Camera Active';
+            this.startCameraBtn.disabled = true;
+            this.captureFaceBtn.disabled = false;
+            this.startColorDetection();
+        } else {
+            this.showError(result.error);
+        }
+    }
+
+    /**
+     * Start real-time color detection preview
+     */
+    startColorDetection() {
+        // Update preview every 500ms
+        this.detectionInterval = setInterval(() => {
+            if (cameraManager.isCameraActive()) {
+                const video = cameraManager.getVideoElement();
+                const colors = colorDetector.detectFaceColors(video);
+                
+                if (colors) {
+                    this.updateGridOverlay(colors);
+                }
+            }
+        }, 500);
+    }
+
+    /**
+     * Update grid overlay with detected colors
+     */
+    updateGridOverlay(colors) {
+        const gridCells = document.querySelectorAll('.grid-cell');
+        colors.forEach((cell, index) => {
+            if (gridCells[index]) {
+                const colorClass = cell.color !== 'unknown' ? 'detected' : '';
+                gridCells[index].className = `grid-cell ${colorClass}`;
+            }
+        });
+    }
+
+    /**
+     * Handle capture face
+     */
+    async handleCaptureFace() {
+        const video = cameraManager.getVideoElement();
+        const colors = colorDetector.detectFaceColors(video);
+        
+        if (!colors) {
+            this.showError('Failed to detect colors. Please ensure the cube is properly positioned.');
+            return;
+        }
+
+        // Validate face
+        const validation = cubeValidator.validateFace(colors);
+        if (!validation.valid && !validation.warning) {
+            this.showError(validation.error);
+            return;
+        }
+
+        if (validation.warning) {
+            // Show warning but allow capture
+            this.showError(validation.error || validation.warning, 'warning');
+        }
+
+        // Capture the face
+        const currentFace = cubeState.getCurrentFace();
+        cubeState.captureFace(currentFace, colors);
+        
+        this.updateUI();
+        
+        // Check if all faces captured
+        if (cubeState.isComplete()) {
+            this.showError('All faces captured! Click "Validate Cube State" to proceed.', 'success');
+            setTimeout(() => {
+                this.showSection('visualization');
+                cubeVisualizer.render(cubeState);
+            }, 1500);
+        }
+    }
+
+    /**
+     * Handle recapture last face
+     */
+    handleRecapture() {
+        if (cubeState.recaptureLastFace()) {
+            this.updateUI();
+            this.showError('');
+        }
+    }
+
+    /**
+     * Handle reset
+     */
+    handleReset() {
+        cubeState.reset();
+        this.updateUI();
+        this.showError('');
+    }
+
+    /**
+     * Handle validate
+     */
+    handleValidate() {
+        const validation = cubeValidator.validate(cubeState);
+        const summary = cubeValidator.getValidationSummary(validation);
+        
+        this.validationResult.className = `validation-result ${summary.type}`;
+        this.validationResult.innerHTML = `
+            <h4>${summary.message}</h4>
+            <pre>${summary.details}</pre>
+        `;
+        this.validationResult.classList.remove('hidden');
+
+        if (validation.valid) {
+            setTimeout(() => {
+                this.showSection('solution');
+            }, 2000);
+        }
+    }
+
+    /**
+     * Handle solve
+     */
+    async handleSolve() {
+        this.solvingStatus.classList.remove('hidden');
+        this.solutionMoves.classList.add('hidden');
+        this.solveBtn.disabled = true;
+
+        // Simulate solving delay
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        const stateString = cubeState.getStateString();
+        const result = cubeSolver.solve(stateString);
+
+        if (result.success) {
+            // Display moves
+            const movesHtml = `
+                <h4>Solution Moves</h4>
+                <div class="move-sequence">${result.moves.join(' ')}</div>
+                <p class="move-count">Total moves: ${result.moveCount}</p>
+            `;
+            this.solutionMoves.innerHTML = movesHtml;
+            this.solutionMoves.classList.remove('hidden');
+            this.solvingStatus.classList.add('hidden');
+
+            // Get explanation from Gemini
+            this.getExplanation(result.moves);
+        } else {
+            this.solvingStatus.innerHTML = `<p class="error">Failed to solve: ${result.error}</p>`;
+            this.solveBtn.disabled = false;
+        }
+    }
+
+    /**
+     * Get explanation from Gemini
+     */
+    async getExplanation(moves) {
+        this.geminiExplanation.innerHTML = '<p class="loading-text">Loading explanation from Gemini...</p>';
+
+        try {
+            const groupedMoves = cubeSolver.groupMovesByPhase(moves);
+            const explanation = await geminiClient.explainSolution(moves, groupedMoves);
+            this.geminiExplanation.innerHTML = explanation;
+        } catch (error) {
+            console.error('Explanation error:', error);
+            this.geminiExplanation.innerHTML = '<p class="error">Failed to load explanation</p>';
+        }
+    }
+
+    /**
+     * Handle new cube
+     */
+    handleNewCube() {
+        cubeState.reset();
+        this.showSection('capture');
+        this.startCameraBtn.disabled = false;
+        this.startCameraBtn.textContent = 'Start Camera';
+        this.updateUI();
+    }
+
+    /**
+     * Update UI based on current state
+     */
+    updateUI() {
+        const progress = cubeState.getProgress();
+        
+        // Update current face label
+        this.currentFaceLabel.textContent = cubeState.constructor.getFaceLabel(progress.currentFace);
+        
+        // Update face dots
+        this.faceDots.forEach(dot => {
+            const face = dot.dataset.face;
+            const faceData = cubeState.getFaceData(face);
+            
+            dot.classList.remove('active', 'completed');
+            
+            if (faceData) {
+                dot.classList.add('completed');
+            } else if (face === progress.currentFace) {
+                dot.classList.add('active');
+            }
+        });
+
+        // Update recapture button
+        this.recaptureBtn.disabled = progress.completed === 0;
+    }
+
+    /**
+     * Show section
+     */
+    showSection(section) {
+        this.captureSection.classList.remove('active');
+        this.visualizationSection.classList.remove('active');
+        this.solutionSection.classList.remove('active');
+
+        if (section === 'capture') {
+            this.captureSection.classList.add('active');
+        } else if (section === 'visualization') {
+            this.visualizationSection.classList.add('active');
+        } else if (section === 'solution') {
+            this.solutionSection.classList.add('active');
+        }
+
+        this.currentSection = section;
+    }
+
+    /**
+     * Show error message
+     */
+    showError(message, type = 'error') {
+        if (!message) {
+            this.errorMessage.classList.add('hidden');
+            return;
+        }
+
+        this.errorMessage.textContent = message;
+        this.errorMessage.className = 'error-message';
+        
+        if (type === 'warning') {
+            this.errorMessage.style.background = '#fef3c7';
+            this.errorMessage.style.color = '#92400e';
+            this.errorMessage.style.borderColor = '#f59e0b';
+        } else if (type === 'success') {
+            this.errorMessage.style.background = '#d1fae5';
+            this.errorMessage.style.color = '#065f46';
+            this.errorMessage.style.borderColor = '#10b981';
+        }
+        
+        this.errorMessage.classList.remove('hidden');
+    }
+}
+
+// Initialize UI when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    new UIController();
+});

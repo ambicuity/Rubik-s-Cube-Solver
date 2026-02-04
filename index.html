@@ -1,15 +1,29 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rubik's Cube Solver</title>
+    <title>Rubik's Cube Solver | Solution & Visualization</title>
+    <meta name="description" content="Capture your cube with webcam, detect colors, and get step-by-step solutions with this automated Rubik's Cube Solver.">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+    
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- Background Animation -->
+    <div class="blob-container">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+    </div>
+
     <div class="container">
         <header>
-            <h1>🎲 Rubik's Cube Solver</h1>
+            <h1><span class="logo-emoji">🎲</span> Rubik's Cube <span class="gradient-text">Solver</span></h1>
             <p class="subtitle">Capture your cube with webcam, detect colors, and get step-by-step solutions</p>
         </header>
 

@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Verify Files
+      run: |
+        if [ ! -f index.html ]; then echo "index.html missing"; exit 1; fi
+        if [ ! -f styles.css ]; then echo "styles.css missing"; exit 1; fi
+        if [ ! -d src ]; then echo "src directory missing"; exit 1; fi
+        echo "Core files present."
+
+    - name: HTML5 Validator
+      uses: validator/html-validator-action@v0.5
+      with:
+        files: index.html
+        
+    - name: Check Theme Assets
+      run: |
+        if ! grep -q "blob-container" index.html; then echo "Theme blob-container missing in HTML"; exit 1; fi
+        if ! grep -q "data-theme" index.html; then echo "Theme attribute missing"; exit 1; fi
+        echo "Theme assets verified."

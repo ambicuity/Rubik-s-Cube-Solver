@@ -13,6 +13,17 @@ export class GeminiClient {
         this.hmacSecret = null;   // Set via setHmacSecret() — never hardcode
         /** Set true if your proxy supports streaming (SSE). */
         this.supportsStreaming = false;
+
+        // Warn early in development if the proxy is active but no HMAC secret
+        // has been injected. Requests will be sent unsigned, which may be
+        // rejected by the Worker in production.
+        if (typeof window !== 'undefined' && this.useProxy && !this.hmacSecret) {
+            console.warn(
+                '[GeminiClient] No HMAC secret configured. '
+                + 'Call geminiClient.setHmacSecret(secret) at boot to sign requests. '
+                + 'See requestToken.js for details.'
+            );
+        }
     }
 
     /**
@@ -26,7 +37,12 @@ export class GeminiClient {
     /**
      * Set the HMAC secret used to generate X-Request-Token headers.
      * Inject this at boot from an environment variable — never hardcode.
-     * Example: geminiClient.setHmacSecret(import.meta.env.VITE_HMAC_SECRET);
+     *
+     * Example (Cloudflare Pages / Vite build):
+     *   geminiClient.setHmacSecret(import.meta.env.VITE_HMAC_SECRET);
+     *
+     * If no secret is set, requests are sent unsigned. The Cloudflare Worker
+     * should reject unsigned requests in production (verify via Worker logs).
      */
     setHmacSecret(secret) {
         this.hmacSecret = secret;

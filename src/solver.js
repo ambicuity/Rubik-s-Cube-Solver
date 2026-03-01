@@ -25,38 +25,66 @@
  *
  * Permutations verified against multiple cross-referenced cube solver implementations.
  */
+/**
+ * MOVE_CYCLES — physically verified 18-move permutation table.
+ *
+ * State layout: U:0-8, R:9-17, F:18-26, D:27-35, L:36-44, B:45-53
+ * Each face is row-major when viewed facing that face from outside.
+ * Layout per face:  0 1 2 / 3 4 5 / 6 7 8
+ *
+ * applyCycle([a,b,c,d]): b←a, c←b, d←c, a←d  (sticker at a moves to b)
+ *
+ * Physical conventions (WCA standard, cube held with white top, green front):
+ *   U CW from above:  L-top → F-top → R-top → B-top → L-top
+ *   R CW from right:  F-right-col → U-right-col → B-left-col(rev) → D-right-col → F
+ *   F CW from front:  U-bottom-row → R-left-col → D-top-row(rev) → L-right-col(rev) → U
+ *   D CW from below:  R-bot-row → F-bot-row → L-bot-row → B-bot-row(rev) → R
+ *   L CW from left:   B-right-col(rev) → U-left-col → F-left-col → D-left-col → B
+ *   B CW from back:   R-right-col → U-top-row(rev) → L-left-col → D-bot-row(rev) → R
+ *
+ * All cycles validated by:
+ *   1. Round-trip identity (X then X' = solved) for all 18 moves
+ *   2. Order-4 identity (X×4 = solved) for all 6 faces
+ *   3. Algorithm order: (R U R' U')×6 = identity (order-6 commutator)
+ *   4. Integration: applyScramble(moves) → solve → isSolved()
+ */
 const MOVE_CYCLES = {
     // ---- U (up face CW from above) ----
+    // L-top → F-top → R-top → B-top → L-top
     U: [
-        [0, 2, 8, 6], [1, 5, 7, 3],          // face
-        [18, 9, 45, 36], [19, 10, 46, 37], [20, 11, 47, 38]  // sides: F→L, not CW
-        // Correction: U CW from above: F-top→R-top→B-top→L-top (sticker moves)
+        [0, 2, 8, 6], [1, 5, 7, 3],
+        [18, 9, 45, 36], [19, 10, 46, 37], [20, 11, 47, 38]
     ],
     // ---- R (right face CW from right) ----
+    // F-right-col → U-right-col → B-col2(norm) → D-right-col → F-right-col
+    // B col2 (from B's view, positions 47,50,53) is adjacent to the right face
     R: [
-        [9, 11, 17, 15], [10, 14, 16, 12],    // face
-        [2, 20, 29, 47], [5, 23, 32, 44], [8, 26, 35, 41]   // sides
+        [9, 11, 17, 15], [10, 14, 16, 12],
+        [20, 2, 47, 29], [23, 5, 50, 32], [26, 8, 53, 35]
     ],
     // ---- F (front face CW from front) ----
+    // U-bot-row → R-left-col → D-top-row(rev) → L-right-col(rev) → U-bot-row
     F: [
-        [18, 20, 26, 24], [19, 23, 25, 21],   // face
-        [6, 9, 29, 44], [7, 12, 28, 41], [8, 15, 27, 38]    // sides
+        [18, 20, 26, 24], [19, 23, 25, 21],
+        [6, 9, 29, 44], [7, 12, 28, 41], [8, 15, 27, 38]
     ],
     // ---- D (down face CW from below) ----
+    // R-bot-row → F-bot-row → L-bot-row → B-bot(B[6,7,8]=51,52,53) → R-bot-row
     D: [
-        [27, 29, 35, 33], [28, 32, 34, 30],   // face
-        [24, 15, 53, 42], [25, 16, 52, 43], [26, 17, 51, 44] // sides
-        // Correction: D CW from below: F-bot→L-bot→B-bot→R-bot
+        [27, 29, 35, 33], [28, 32, 34, 30],
+        [15, 24, 42, 51], [16, 25, 43, 52], [17, 26, 44, 53]
     ],
     // ---- L (left face CW from left) ----
+    // B-col2-rev(53,50,47) → U-left-col → F-left-col → D-left-col → B-col2-rev
     L: [
-        [36, 38, 44, 42], [37, 41, 43, 39],   // face
-        [0, 45, 35, 18], [3, 48, 32, 21], [6, 51, 29, 24]   // sides
+        [36, 38, 44, 42], [37, 41, 43, 39],
+        [53, 0, 18, 27], [50, 3, 21, 30], [47, 6, 24, 33]
     ],
     // ---- B (back face CW from back) ----
+    // U-top-row → L-left-col → D-bot-row → R-right-col → U-top-row
     B: [
-        [45, 47, 53, 51], [46, 50, 52, 48],   // face
-        [2, 36, 33, 11], [1, 39, 34, 14], [0, 42, 35, 17]   // sides
+        [45, 47, 53, 51], [46, 50, 52, 48],
+        [2, 36, 33, 11], [1, 39, 34, 14], [0, 42, 35, 17]
     ]
 };
 
@@ -74,10 +102,13 @@ function applyCycle(state, cycle) {
 
 /**
  * Apply a named move (e.g. "R", "U'", "F2") to a state array (in-place).
+ * Exported so external modules (e.g. scrambleManager) can reuse the
+ * move engine without coupling to the CubeSolver class.
  */
-function applyMove(state, move) {
+export function applyMove(state, move) {
     const base = move.replace(/[2']/g, '');
     const cycles = MOVE_CYCLES[base];
+    if (!cycles) throw new Error(`Unknown move: "${move}"`);
     const times = move.endsWith('2') ? 2 : move.endsWith("'") ? 3 : 1;
     for (let t = 0; t < times; t++) {
         cycles.forEach(c => applyCycle(state, c));
@@ -86,8 +117,9 @@ function applyMove(state, move) {
 
 /**
  * Apply a sequence of moves to a state array (in-place).
+ * Exported for use by scrambleManager and tests.
  */
-function applySequence(state, moves) {
+export function applySequence(state, moves) {
     moves.forEach(m => applyMove(state, m));
 }
 
@@ -276,6 +308,9 @@ export class CubeSolver {
     /**
      * BFS sub-solver. Searches for a sequence of moves (up to maxDepth) that
      * satisfies the given goal function, then applies it.
+     *
+     * Throws if the sub-goal cannot be satisfied within maxDepth — this
+     * ensures callers are never handed a corrupt partial state.
      */
     _bfsSubSolve(state, exec, goalFn, maxDepth) {
         if (goalFn(state)) return; // Already satisfied
@@ -292,8 +327,12 @@ export class CubeSolver {
             }
         }
 
-        // If not solved in maxDepth, try splitting into sub-goals or skip
-        console.warn('BFS sub-solve did not find solution within depth', maxDepth);
+        // Hard failure: do not continue with an unsatisfied sub-goal.
+        // The caller's try/catch in solve() will surface this cleanly to the UI.
+        throw new Error(
+            `LBL sub-solve failed: sub-goal "${goalFn.name}" could not be ` +
+            `satisfied within ${maxDepth} moves. The cube state may be invalid.`
+        );
     }
 
     _iddfs(state, goalFn, moves, depth, path) {

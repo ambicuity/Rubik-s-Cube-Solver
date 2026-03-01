@@ -50,7 +50,8 @@ class OptimalSolver {
 
     /**
      * Solve asynchronously.
-     * Returns { success, moves, moveCount } or { success: false, error }.
+     * Returns { success, moves, moveCount, method, solveMs } or { success: false, error }.
+     * `solveMs` is the wall-clock time spent in the core solve (excludes WASM load time).
      */
     async solve(cubeStateString) {
         if (!cubeStateString || cubeStateString.length !== 54 || cubeStateString.includes('?')) {
@@ -61,28 +62,30 @@ class OptimalSolver {
 
         if (fn) {
             try {
-                // cubing.js returns an Alg object; .toString() gives move notation
+                const t0 = performance.now();
                 const alg = await fn(cubeStateString);
+                const solveMs = Math.round(performance.now() - t0);
                 const movesStr = alg.toString().trim();
 
                 if (!movesStr) {
-                    // Already solved
                     this.solution = [];
-                    return { success: true, moves: [], moveCount: 0 };
+                    return { success: true, moves: [], moveCount: 0, method: 'kociemba', solveMs };
                 }
 
                 const moves = movesStr.split(/\s+/);
                 this.solution = moves;
-                return { success: true, moves, moveCount: moves.length };
+                return { success: true, moves, moveCount: moves.length, method: 'kociemba', solveMs };
             } catch (err) {
                 console.warn('[OptimalSolver] cubing.js solve failed, falling back to LBL:', err.message);
             }
         }
 
         // Synchronous LBL fallback
+        const t0 = performance.now();
         const fallback = lblFallback.solve(cubeStateString);
+        const solveMs = Math.round(performance.now() - t0);
         this.solution = fallback.moves || [];
-        return fallback;
+        return { ...fallback, method: 'lbl', solveMs };
     }
 
     getSolution() { return this.solution; }

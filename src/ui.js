@@ -17,6 +17,7 @@ import { AutoCaptureController } from './autoCaptureController.js';
 import { solutionAnimator } from './solutionAnimator.js';
 import { ManualEntryController } from './manualEntry.js';
 import { generateScramble, applyScramble, stateStringToFaces } from './scrambleManager.js';
+import { initInstallPrompt } from './installPrompt.js';
 
 const solver2x2 = new Solver2x2();
 
@@ -31,6 +32,8 @@ class UIController {
         this._initElements();
         this._attachListeners();
         this._initialize3D();
+        // Init PWA Install feature
+        initInstallPrompt();
         this.updateUI();
     }
 
@@ -96,7 +99,9 @@ class UIController {
         this.recaptureBtn?.addEventListener('click', () => this._handleRecapture());
         this.resetCaptureBtn?.addEventListener('click', () => this._handleReset());
         this.validateBtn?.addEventListener('click', () => this._handleValidate());
-        this.backToCaptureBtn?.addEventListener('click', () => this._showSection('capture'));
+        this.backToCaptureBtn?.addEventListener('click', () => {
+            this._showSection('capture');
+        });
         this.solveBtn?.addEventListener('click', () => this._handleSolve());
         this.newCubeBtn?.addEventListener('click', () => this._handleNewCube());
 
@@ -123,9 +128,37 @@ class UIController {
         });
     }
 
-    _handleStartCamera() {
+    _updateScanGuide(state = 'active') {
+        const guide = document.querySelector('.scan-guide');
+        if (!guide) return;
+
+        if (state === 'locked') {
+            guide.innerHTML = `<span class="scan-action-icon">✓</span> Scanning face... hold steady!`;
+            guide.style.borderColor = 'var(--success)';
+            guide.classList.remove('hidden');
+            return;
+        }
+
+        const face = cubeState.getCurrentFace();
+        const faceNames = { U: 'White (Top)', R: 'Red (Right)', F: 'Green (Front)', D: 'Yellow (Bottom)', L: 'Orange (Left)', B: 'Blue (Back)' };
+        const instructions = {
+            U: 'Show <strong>White</strong> (Top) face',
+            R: 'Rotate 🧊 left → Show <strong>Red</strong> (Right)',
+            F: 'Rotate 🧊 left → Show <strong>Green</strong> (Front)',
+            D: 'Rotate 🧊 up → Show <strong>Yellow</strong> (Bottom)',
+            L: 'Rotate 🧊 right → Show <strong>Orange</strong> (Left)',
+            B: 'Rotate 🧊 left → Show <strong>Blue</strong> (Back)'
+        };
+
+        guide.innerHTML = `<span class="scan-action-icon">📸</span> ${instructions[face] || 'Scan face'}`;
+        guide.style.borderColor = 'var(--accent-mid)';
+        guide.classList.remove('hidden');
+    }
+
+    async _startCameraFlow() {
         this._showError('');
-        cameraManager.startCamera().then(result => {
+        try {
+            const result = await cameraManager.startCamera();
             if (result.success) {
                 this.startCameraBtn.textContent = 'Camera Active';
                 this.startCameraBtn.disabled = true;
@@ -137,7 +170,24 @@ class UIController {
             } else {
                 this._showError(result.error || 'Camera access denied. Enable camera permissions and try again.');
             }
-        });
+        } catch (err) {
+            console.error(err);
+            this._showError(err.message || 'Could not start camera.');
+        } finally {
+            this.startCameraBtn.disabled = false;
+        }
+    }
+
+    _handleStartCamera() {
+        if (cameraManager.isActive) {
+            this._stopDetection();
+            cameraManager.stopCamera();
+            this.startCameraBtn.textContent = 'Start Camera';
+            this.captureFaceBtn.disabled = true;
+            this.updateUI();
+        } else {
+            this._startCameraFlow();
+        }
     }
 
     _startDetection() {
@@ -160,24 +210,28 @@ class UIController {
             },
             onCenterDetected: (color) => {
                 const map = { white: 'U', yellow: 'D', green: 'F', blue: 'B', red: 'R', orange: 'L' };
-                if (map[color]) {
+                if (map[color] && map[color] !== cubeState.getCurrentFace()) {
                     cubeState.currentFace = map[color];
                     this.updateUI();
+                    this._updateScanGuide('active');
                 }
             },
             onStable: () => {
                 videoContainer.classList.add('scanning-locked');
+                this._updateScanGuide('locked');
                 this._autoCapture.setCapturing(true);
                 this._handleCaptureFace();
                 setTimeout(() => {
                     if (this._autoCapture) this._autoCapture.setCapturing(false);
                     videoContainer.classList.remove('scanning-locked');
                     videoContainer.classList.add('scanning-active');
+                    this._updateScanGuide('active');
                 }, 2000);
             }
         });
 
         this._autoCapture.start();
+        this._updateScanGuide('active');
     }
 
     _stopDetection() {
@@ -185,6 +239,8 @@ class UIController {
             this._autoCapture.stop();
             this._autoCapture = null;
         }
+        const guide = document.querySelector('.scan-guide');
+        if (guide) guide.classList.add('hidden');
     }
 
     _updateGridOverlay(colors) {
@@ -206,9 +262,12 @@ class UIController {
         const face = cubeState.getCurrentFace();
         cubeState.captureFace(face, colors);
         this.updateUI();
+        this._updateScanGuide('active');
 
         if (cubeState.isComplete()) {
             this._showError('All faces captured! Validate Cube State to proceed.', 'success');
+            const guide = document.querySelector('.scan-guide');
+            if (guide) guide.classList.add('hidden');
             setTimeout(() => {
                 this._showSection('visualization');
                 cubeVisualizer.render(cubeState);
@@ -345,10 +404,17 @@ class UIController {
 
         if (result.success) {
             const moves = result.moves;
+            const msText = result.solveMs !== undefined ? ` · <span title="WASM-accelerated solve speed">⏱️ ${result.solveMs}ms</span>` : '';
+            const methodName = result.method === 'lbl' ? 'Layer-by-Layer' :
+                result.method === 'kociemba' ? 'Optimal (Kociemba)' :
+                    result.method || 'Optimal';
+
             this.solutionMoves.innerHTML = `
-                <h4>Solution (${result.method || 'Optimal'}) — ${this.cubeSize}×${this.cubeSize}</h4>
+                <h4>Solution (${methodName}) — ${this.cubeSize}×${this.cubeSize}</h4>
                 <div class="move-sequence">${moves.join(' ') || '(Already solved!)'}</div>
-                <p class="move-count">Total moves: ${result.moveCount}</p>
+                <p class="move-count">
+                    Total moves: ${result.moveCount}${msText}
+                </p>
             `;
             this.solutionMoves.classList.remove('hidden');
             this.solvingStatus.classList.add('hidden');
@@ -464,7 +530,7 @@ class UIController {
 
         const styles = {
             warning: { bg: '#fef3c7', color: '#92400e', border: '#f59e0b' },
-            success: { bg: '#d1fae5', color: '#d1fae5', border: '#10b981' } // using tailwind colors approx
+            success: { bg: '#d1fae5', color: '#065f46', border: '#10b981' }
         };
         const s = styles[type];
         if (s) {

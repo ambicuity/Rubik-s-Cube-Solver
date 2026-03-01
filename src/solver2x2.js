@@ -132,6 +132,11 @@ export class Solver2x2 {
 
     /**
      * Solve a 2×2 cube.
+     *
+     * Currently uses the built-in IDDFS solver (depth ≤ 14). A cubing.js
+     * Kociemba path is not yet available for 2×2 in the browser bundle;
+     * when it becomes available, add it here before the IDDFS fallback.
+     *
      * @param {string} stateStr  24-char state string (URFDLB order, 4 stickers each)
      * @returns {{ success, moves, moveCount, method, error }}
      */
@@ -139,21 +144,7 @@ export class Solver2x2 {
         if (stateStr === SOLVED_2x2) {
             return { success: true, moves: [], moveCount: 0, method: 'none' };
         }
-
-        // Try cubing.js optimal solver first
-        try {
-            const kociemba = await this._tryKociemba(stateStr);
-            if (kociemba) return kociemba;
-        } catch (_) { /* fall through */ }
-
-        // Built-in IDDFS fallback
         return this._solveIddfs(stateStr);
-    }
-
-    async _tryKociemba(stateStr) {
-        // cubing.js doesn't have a direct 2x2 solve API in v1.x browser bundle,
-        // so we use the built-in solver below.
-        return null;
     }
 
     _solveIddfs(stateStr) {

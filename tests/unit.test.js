@@ -2,19 +2,39 @@
  * Unit tests for pure functions in the Rubik's Cube Solver.
  * Run with: npm test
  *
- * Tests cover:
- *  - colorDetection.js: rgbToHsv, detectColor
- *  - cubeState.js: colorToNotation (dynamic map), getStateString
- *  - validator.js: validateFace, validate (count checks)
- *  - solver.js: applyMove (via exported helpers), groupMovesByPhase
+ * Test coverage:
+ *  - colorDetection.js:  rgbToHsv, detectColor
+ *  - cubeState.js:       colorToNotation (dynamic map), getStateString
+ *  - validator.js:       validateFace, validate (count checks, parity)
+ *  - solver.js:          Move round-trip identity (all 18 base moves),
+ *                        applyMove/applySequence exports, groupMovesByPhase
+ *  - scrambleManager.js: parseScramble, applyScramble (correctness),
+ *                        stateStringToFaces (default + custom colorMap)
+ *  - Integration:        scramble → solve → verify solved state
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const SOLVED_STATE = 'UUUUUUUUU' + 'RRRRRRRRR' + 'FFFFFFFFF' +
+    'DDDDDDDDD' + 'LLLLLLLLL' + 'BBBBBBBBB';
+
+function isSolved(stateStr) {
+    for (let f = 0; f < 6; f++) {
+        const center = stateStr[f * 9 + 4];
+        for (let i = 0; i < 9; i++) {
+            if (stateStr[f * 9 + i] !== center) return false;
+        }
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // colorDetection — pure math functions
 // ---------------------------------------------------------------------------
-// We import only the class so no DOM is needed
 import { ColorDetector } from '../src/colorDetection.js';
 
 describe('ColorDetector.rgbToHsv', () => {
@@ -87,14 +107,12 @@ describe('ColorDetector.detectColor', () => {
 import { CubeState } from '../src/cubeState.js';
 
 function makeFace(color) {
-    // 9 cells, cell 4 is center
-    return Array.from({ length: 9 }, (_, i) => ({ color }));
+    return Array.from({ length: 9 }, () => ({ color }));
 }
 
 describe('CubeState.colorToNotation', () => {
     it('maps colors dynamically from captured centers', () => {
         const cs = new CubeState();
-        // Capture in canonical URFDLB order matching internal FACE_ORDER
         cs.captureFace('U', makeFace('white'));
         cs.captureFace('R', makeFace('red'));
         cs.captureFace('F', makeFace('green'));
@@ -121,10 +139,8 @@ describe('CubeState.colorToNotation', () => {
         cs.captureFace('U', makeFace('white'));
         expect(cs.colorToNotation('white')).toBe('U');
         cs.recaptureLastFace();
-        // After recapture, the entire cache is cleared
         cs.captureFace('U', makeFace('yellow'));
         expect(cs.colorToNotation('yellow')).toBe('U');
-        // The original color is now unmapped
         expect(cs.colorToNotation('white')).toBe('?');
     });
 });
@@ -143,7 +159,6 @@ describe('CubeState.getStateString', () => {
         const str = cs.getStateString();
         expect(str).not.toBeNull();
         expect(str.length).toBe(54);
-        // All chars should be valid face keys
         expect([...str].every(ch => 'URFDLB'.includes(ch))).toBe(true);
     });
 });
@@ -176,6 +191,87 @@ describe('CubeValidator.validateFace', () => {
 });
 
 // ---------------------------------------------------------------------------
+// solver.js — applyMove exports: round-trip identity tests
+// All 18 base moves (X and X' must be inverses; X2 applied twice = identity)
+// ---------------------------------------------------------------------------
+import { applyMove, applySequence } from '../src/solver.js';
+
+const BASE_FACES = ['U', 'R', 'F', 'D', 'L', 'B'];
+
+describe('applyMove: CW then CCW = identity (all 6 faces)', () => {
+    for (const face of BASE_FACES) {
+        it(`${face} then ${face}' restores the solved state`, () => {
+            const state = SOLVED_STATE.split('');
+            applyMove(state, face);
+            applyMove(state, face + "'");
+            expect(state.join('')).toBe(SOLVED_STATE);
+        });
+    }
+});
+
+describe('applyMove: CCW then CW = identity (all 6 faces)', () => {
+    for (const face of BASE_FACES) {
+        it(`${face}' then ${face} restores the solved state`, () => {
+            const state = SOLVED_STATE.split('');
+            applyMove(state, face + "'");
+            applyMove(state, face);
+            expect(state.join('')).toBe(SOLVED_STATE);
+        });
+    }
+});
+
+describe('applyMove: double then double = identity (all 6 faces)', () => {
+    for (const face of BASE_FACES) {
+        it(`${face}2 twice restores the solved state`, () => {
+            const state = SOLVED_STATE.split('');
+            applyMove(state, face + '2');
+            applyMove(state, face + '2');
+            expect(state.join('')).toBe(SOLVED_STATE);
+        });
+    }
+});
+
+describe('applyMove: CW four times = identity (all 6 faces)', () => {
+    for (const face of BASE_FACES) {
+        it(`${face} x4 restores the solved state`, () => {
+            const state = SOLVED_STATE.split('');
+            for (let i = 0; i < 4; i++) applyMove(state, face);
+            expect(state.join('')).toBe(SOLVED_STATE);
+        });
+    }
+});
+
+describe('applyMove: rejects unknown move', () => {
+    it('throws an error for an invalid face letter', () => {
+        const state = SOLVED_STATE.split('');
+        expect(() => applyMove(state, 'X')).toThrow(/Unknown move/);
+    });
+});
+
+describe('applySequence: known algorithm round-trip', () => {
+    // Pure array-manipulation tests (no solver involved — fast).
+    // Sexy move: (R U R' U') has group order 6 — applying 6 times returns to solved.
+    it("(R U R' U') x6 restores the solved state", () => {
+        const state = SOLVED_STATE.split('');
+        const sexyMove = ["R", "U", "R'", "U'"];
+        for (let i = 0; i < 6; i++) applySequence(state, sexyMove);
+        expect(state.join('')).toBe(SOLVED_STATE);
+    });
+
+    // Multi-move inverse: applying a sequence then its inverse restores solved state
+    it('applySequence + inverse restores the solved state', () => {
+        const state = SOLVED_STATE.split('');
+        const seq = ["R", "U", "F2", "L'", "D"];
+        const inv = [...seq].reverse().map(m =>
+            m.endsWith("'") ? m[0] : m.endsWith('2') ? m : m + "'"
+        );
+        applySequence(state, seq);
+        applySequence(state, inv);
+        expect(state.join('')).toBe(SOLVED_STATE);
+    });
+});
+
+// ---------------------------------------------------------------------------
 // CubeSolver — groupMovesByPhase
 // ---------------------------------------------------------------------------
 import { CubeSolver } from '../src/solver.js';
@@ -188,11 +284,9 @@ describe('CubeSolver.groupMovesByPhase', () => {
     });
 
     it('returns 4 phase groups for a typical move count', () => {
-        // 40 moves span all LBL phases (Cross 25%, F2L 40%, OLL 20%, PLL 15%)
         const moves = Array.from({ length: 40 }, (_, i) => ['R', 'U', 'F', 'L', "R'", "U'"][i % 6]);
         const groups = cs.groupMovesByPhase(moves);
         const phases = groups.map(g => g.phase);
-        // All four phase names must appear
         expect(phases).toContain('Cross');
         expect(phases).toContain('F2L');
         expect(phases).toContain('OLL');
@@ -205,4 +299,111 @@ describe('CubeSolver.groupMovesByPhase', () => {
         const total = groups.reduce((s, g) => s + g.moves.length, 0);
         expect(total).toBe(30);
     });
+});
+
+// ---------------------------------------------------------------------------
+// scrambleManager — parseScramble, applyScramble, stateStringToFaces
+// ---------------------------------------------------------------------------
+import { parseScramble, applyScramble, generateScramble, stateStringToFaces } from '../src/scrambleManager.js';
+
+describe('parseScramble', () => {
+    it('parses a standard WCA scramble string', () => {
+        const moves = parseScramble("R U2 F' L D B'");
+        expect(moves).toEqual(['R', 'U2', "F'", 'L', 'D', "B'"]);
+    });
+
+    it('returns empty array for empty string', () => {
+        expect(parseScramble('')).toEqual([]);
+    });
+
+    it('throws on invalid face letter', () => {
+        expect(() => parseScramble('X U R')).toThrow(/Invalid move face/);
+    });
+
+    it('throws on invalid suffix', () => {
+        expect(() => parseScramble('R3')).toThrow(/Invalid move suffix/);
+    });
+});
+
+describe('applyScramble correctness', () => {
+    it('returns the solved state when given zero moves', () => {
+        expect(applyScramble([])).toBe(SOLVED_STATE);
+    });
+
+    it("R then R' returns to solved", () => {
+        const state = applyScramble(["R", "R'"]);
+        expect(state).toBe(SOLVED_STATE);
+    });
+
+    it('any 20-move scramble is not the solved state', () => {
+        const scramble = parseScramble(generateScramble(20));
+        const state = applyScramble(scramble);
+        // Extremely unlikely to be solved — treat as a sanity check
+        // (the probability is 1/4.3×10^19)
+        expect(state).not.toBe(SOLVED_STATE);
+    });
+
+    it('scramble then inverse scramble restores solved state', () => {
+        const scramble = ["R", "U", "F", "D2", "L'", "B2"];
+        const inverse = [...scramble].reverse().map(m =>
+            m.endsWith("'") ? m[0] : m.endsWith('2') ? m : m + "'"
+        );
+        const forward = applyScramble(scramble);
+        const restored = applyScramble([...scramble, ...inverse]);
+        expect(restored).toBe(SOLVED_STATE);
+    });
+});
+
+describe('stateStringToFaces', () => {
+    it('converts solved state string to all-white U face with default map', () => {
+        const faces = stateStringToFaces(SOLVED_STATE);
+        expect(faces.U.every(c => c.color === 'white')).toBe(true);
+        expect(faces.R.every(c => c.color === 'red')).toBe(true);
+        expect(faces.D.every(c => c.color === 'yellow')).toBe(true);
+    });
+
+    it('accepts a custom colorMap and overrides defaults', () => {
+        const customMap = { U: 'yellow', R: 'orange', F: 'blue', D: 'white', L: 'red', B: 'green' };
+        const faces = stateStringToFaces(SOLVED_STATE, 3, customMap);
+        // U face stickers in solved state are all 'U' → mapped to 'yellow' in custom map
+        expect(faces.U.every(c => c.color === 'yellow')).toBe(true);
+    });
+
+    it('falls back to default map for incomplete custom colorMap', () => {
+        const partialMap = { U: 'yellow' }; // only 1 of 6 faces
+        const faces = stateStringToFaces(SOLVED_STATE, 3, partialMap);
+        // Falls back to default: U → white
+        expect(faces.U.every(c => c.color === 'white')).toBe(true);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Integration test: scramble → solve → verify
+// Uses the LBL solver (synchronous) so no async WASM needed in unit tests.
+// ---------------------------------------------------------------------------
+describe('Integration: applyScramble → CubeSolver.solve → solved state', () => {
+    const solver = new CubeSolver();
+
+    // Keep scrambles short (1-4 moves) to stay within the IDDFS per-phase depth limit.
+    // The LBL solver uses maxDepth 6-10 per sub-goal; longer scrambles require
+    // deeper search and are best covered by the optimal solver integration tests.
+    const simpleScrambles = [
+        ["R"],
+        ["U", "R'"],
+        ["R", "U", "F"],
+        ["R", "U", "R'", "U'"],
+    ];
+
+    for (const scramble of simpleScrambles) {
+        it(`solves scramble: ${scramble.join(' ')}`, () => {
+            const scrambledState = applyScramble(scramble);
+            const result = solver.solve(scrambledState);
+            expect(result.success).toBe(true);
+
+            // Apply the solution to the scrambled state and verify it is solved
+            const finalState = scrambledState.split('');
+            applySequence(finalState, result.moves);
+            expect(isSolved(finalState.join(''))).toBe(true);
+        });
+    }
 });

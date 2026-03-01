@@ -14,7 +14,8 @@
  *   const random = generateScramble(20);           // → "R U2 F' L2 ..."
  */
 
-import { CubeSolver } from './solver.js';
+import { applyMove } from './solver.js';
+
 
 // Solved state: each face has 9 identical stickers
 const SOLVED_STATE = 'UUUUUUUUU' + 'RRRRRRRRR' + 'FFFFFFFFF' +
@@ -57,19 +58,10 @@ export function parseScramble(scrambleStr) {
  * @returns {string} 54-char state string
  */
 export function applyScramble(moves) {
-    const solver = new CubeSolver();
     let state = SOLVED_STATE.split('');
-
     for (const move of moves) {
-        const face = move[0];
-        const suffix = move.slice(1);
-        const times = suffix === '2' ? 2 : suffix === "'" ? 3 : 1;
-
-        for (let i = 0; i < times; i++) {
-            state = solver.applyMove(state.join(''), face).split('');
-        }
+        applyMove(state, move);
     }
-
     return state.join('');
 }
 
@@ -104,15 +96,33 @@ export function generateScramble(length = 20) {
 /**
  * Convert a 54-char state string back to a cubeState-compatible faces object.
  * Face order in string: U(0-8) R(9-17) F(18-26) D(27-35) L(36-44) B(45-53)
+ *
  * @param {string} stateStr
+ * @param {number} [size=3]  Cube size (3 for 3x3, 2 for 2x2 — unused currently but kept for API parity)
+ * @param {Object} [colorMap]  Optional map of { U:'white', R:'red', ... } derived from
+ *                             center stickers. Falls back to the standard WCA scheme.
  * @returns {{ U, R, F, D, L, B }} — each value is array of 9 { color } objects
  */
-export function stateStringToFaces(stateStr) {
-    // Maps face letter → color name
-    const letterToColor = {
+export function stateStringToFaces(stateStr, size = 3, colorMap = null) {
+    // Default WCA standard color scheme
+    const defaultLetterToColor = {
         U: 'white', R: 'red', F: 'green',
         D: 'yellow', L: 'orange', B: 'blue'
     };
+
+    // If a dynamic colorMap is supplied (face→color), invert it to letter→color
+    let letterToColor = defaultLetterToColor;
+    if (colorMap && typeof colorMap === 'object') {
+        const inverted = {};
+        for (const [face, color] of Object.entries(colorMap)) {
+            inverted[face] = color;
+        }
+        // Only override if we got a full 6-face map
+        if (Object.keys(inverted).length === 6) {
+            letterToColor = inverted;
+        }
+    }
+
     const faceKeys = ['U', 'R', 'F', 'D', 'L', 'B'];
     const result = {};
 

@@ -409,6 +409,62 @@ header h1 {
     box-shadow: 0 0 10px var(--success);
 }
 
+/* Scan Guide Overlay */
+.scan-guide {
+    position: absolute;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid var(--accent-mid);
+    padding: 0.75rem 1.25rem;
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 1rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(167, 139, 250, 0.3);
+    pointer-events: none;
+    z-index: 10;
+    transition: all 0.3s ease;
+}
+
+.scan-guide.hidden {
+    opacity: 0;
+    transform: translate(-50%, 1rem);
+    pointer-events: none;
+}
+
+.scan-action-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: var(--accent-gradient);
+    border-radius: 50%;
+    color: white;
+    font-size: 1.1rem;
+    animation: iconBounce 2s infinite ease-in-out;
+}
+
+@keyframes iconBounce {
+
+    0%,
+    100% {
+        transform: translateY(0) scale(1);
+    }
+
+    50% {
+        transform: translateY(-3px) scale(1.1);
+        box-shadow: 0 0 10px rgba(167, 139, 250, 0.8);
+    }
+}
+
 /* Capture Controls */
 .capture-controls {
     text-align: center;
@@ -723,6 +779,7 @@ footer {
     margin-top: 0.5rem;
     opacity: 0.8;
 }
+
 /* --- New Options UI --- */
 .cube-options-bar {
     display: flex;
@@ -730,11 +787,13 @@ footer {
     gap: 1.5rem;
     margin-top: 1rem;
 }
+
 .option-group {
     display: flex;
     align-items: center;
     gap: 0.5rem;
 }
+
 .retro-select {
     background: rgba(25, 25, 35, 0.8);
     color: var(--text-primary);
@@ -746,6 +805,7 @@ footer {
     cursor: pointer;
     transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
+
 .retro-select:focus {
     border-color: var(--accent-mid);
     box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.25);
@@ -802,8 +862,15 @@ footer {
 }
 
 @keyframes emptyPulse {
-    0%, 100% { opacity: 0.4; }
-    50%       { opacity: 0.9; }
+
+    0%,
+    100% {
+        opacity: 0.4;
+    }
+
+    50% {
+        opacity: 0.9;
+    }
 }
 
 .empty-state-msg {
@@ -829,6 +896,7 @@ footer {
     align-items: center;
     margin-bottom: 1rem;
 }
+
 .capture-header-actions {
     display: flex;
     gap: 0.5rem;
@@ -850,11 +918,13 @@ footer {
 .manual-entry-panel {
     margin-bottom: 1.5rem;
 }
+
 .manual-entry-hint {
     font-size: 0.9rem;
     color: var(--text-light);
     margin-bottom: 1rem;
 }
+
 .cube-net {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -863,25 +933,51 @@ footer {
     max-width: 400px;
     margin: 0 auto 1.5rem;
 }
+
 .net-face {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 0.2rem;
 }
+
 /* Net Positioning (U top, L F R B middle, D bottom) */
-.net-face-U { grid-column: 2; grid-row: 1; }
-.net-face-L { grid-column: 1; grid-row: 2; }
-.net-face-F { grid-column: 2; grid-row: 2; }
-.net-face-R { grid-column: 3; grid-row: 2; }
-.net-face-B { grid-column: 4; grid-row: 2; }
-.net-face-D { grid-column: 2; grid-row: 3; }
+.net-face-U {
+    grid-column: 2;
+    grid-row: 1;
+}
+
+.net-face-L {
+    grid-column: 1;
+    grid-row: 2;
+}
+
+.net-face-F {
+    grid-column: 2;
+    grid-row: 2;
+}
+
+.net-face-R {
+    grid-column: 3;
+    grid-row: 2;
+}
+
+.net-face-B {
+    grid-column: 4;
+    grid-row: 2;
+}
+
+.net-face-D {
+    grid-column: 2;
+    grid-row: 3;
+}
 
 .net-face-label {
     font-size: 0.7rem;
     font-weight: 700;
     color: var(--text-light);
 }
+
 .net-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -891,17 +987,20 @@ footer {
     padding: 2px;
     border-radius: 4px;
 }
+
 .net-sticker {
     width: 20px;
     height: 20px;
     border-radius: 2px;
     cursor: pointer;
-    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.2);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
 }
+
 .net-sticker-center {
     cursor: not-allowed;
     opacity: 0.8;
 }
+
 .net-sticker:hover:not(.net-sticker-center) {
     filter: brightness(1.2);
 }
@@ -912,6 +1011,7 @@ footer {
     gap: 1rem;
     margin-top: 1rem;
 }
+
 .manual-entry-error {
     color: var(--error);
     margin-top: 1rem;

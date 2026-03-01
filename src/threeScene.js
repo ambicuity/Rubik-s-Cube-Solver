@@ -2,7 +2,7 @@
  * threeScene.js - Manages the 3D visualization of the Rubik's Cube
  */
 
-import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+import * as THREE from './vendor/three.module.js';
 
 
 export class ThreeScene {

@@ -15,6 +15,11 @@
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap"
         rel="stylesheet">
 
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#6c63ff">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+
     <link rel="stylesheet" href="styles.css">
 </head>
 
@@ -30,20 +35,57 @@
         <header>
             <h1><span class="logo-emoji">🎲</span> Rubik's Cube <span class="gradient-text">Solver</span></h1>
             <p class="subtitle">Capture your cube with webcam, detect colors, and get step-by-step solutions</p>
+
+            <div class="cube-options-bar">
+                <div class="option-group">
+                    <label for="cube-size-select">Cube Size:</label>
+                    <select id="cube-size-select" class="retro-select">
+                        <option value="3" selected>3×3 (Standard)</option>
+                        <option value="2">2×2 (Pocket)</option>
+                    </select>
+                </div>
+                <div class="option-group">
+                    <label for="solve-method-select">Solve Method:</label>
+                    <select id="solve-method-select" class="retro-select">
+                        <option value="optimal" selected>Optimal (Shortest)</option>
+                        <option value="lbl">Beginner (Layer-by-Layer)</option>
+                    </select>
+                </div>
+            </div>
         </header>
 
         <main>
             <!-- Step 1: Webcam Capture -->
-            <!-- CAPTURE SECTION -->
             <section id="capture-section" class="section active">
                 <div class="glass-card">
-                    <h2>📷 Scan Cube</h2>
-                    <p class="instruction">Center the cube face in the grid below.</p>
+                    <div class="capture-header-row">
+                        <h2>📷 Scan Cube</h2>
+                        <div class="capture-header-actions">
+                            <button id="generate-scramble-btn" class="btn btn-secondary btn-sm"
+                                title="Generate a random scramble to test the solver without a real cube">🎲
+                                Scramble</button>
+                            <button id="manual-entry-btn" class="btn btn-secondary btn-sm"
+                                title="Click colors manually instead of using the camera">✍️ Manual Entry</button>
+                        </div>
+                    </div>
 
-                    <div class="video-container">
-                        <video id="video" autoplay playsinline></video>
-                        <canvas id="overlay"></canvas>
-                        <div class="scan-guide"></div>
+                    <!-- New hidden scramble display -->
+                    <div id="scramble-display" class="scramble-display hidden"></div>
+
+                    <!-- Camera UI Panel -->
+                    <div class="camera-view">
+                        <p class="instruction">Center the cube face in the grid below.</p>
+
+                        <div class="video-container">
+                            <video id="video" autoplay playsinline></video>
+                            <canvas id="overlay"></canvas>
+                            <div class="scan-guide"></div>
+                        </div>
+                    </div>
+
+                    <!-- Manual Entry UI Panel (hidden by default) -->
+                    <div id="manual-entry-panel" class="manual-entry-panel" style="display: none;">
+                        <!-- JS injects the 2D clicking grid here -->
                     </div>
 
                     <div class="capture-controls">
@@ -113,6 +155,20 @@
                         </div>
                     </div>
 
+                    <!-- Animator controls (shown after solve) -->
+                    <div id="animator-controls" class="animator-controls hidden">
+                        <div class="animator-progress">
+                            <span id="animator-step-label">Step <strong id="animator-current">0</strong> / <strong
+                                    id="animator-total">0</strong></span>
+                        </div>
+                        <div class="animator-buttons">
+                            <button id="anim-reset-btn" class="btn btn-secondary btn-sm">⏮ Reset</button>
+                            <button id="anim-back-btn" class="btn btn-secondary btn-sm">‹ Back</button>
+                            <button id="anim-play-btn" class="btn btn-primary   btn-sm">▶ Play</button>
+                            <button id="anim-forward-btn" class="btn btn-secondary btn-sm">Forward ›</button>
+                        </div>
+                    </div>
+
                     <div class="solution-controls">
                         <button id="solve-btn" class="btn btn-primary">Solve Cube</button>
                         <button id="new-cube-btn" class="btn btn-secondary">Solve Another Cube</button>
@@ -128,14 +184,31 @@
     </div>
 
     <!-- JavaScript Modules -->
+    <script type="module" src="src/scrambleManager.js"></script>
+    <script type="module" src="src/solver2x2.js"></script>
+    <script type="module" src="src/manualEntry.js"></script>
     <script type="module" src="src/camera.js"></script>
     <script type="module" src="src/colorDetection.js"></script>
     <script type="module" src="src/cubeState.js"></script>
     <script type="module" src="src/validator.js"></script>
+    <script type="module" src="src/optimalSolver.js"></script>
     <script type="module" src="src/solver.js"></script>
     <script type="module" src="src/visualizer.js"></script>
+    <script type="module" src="src/solutionAnimator.js"></script>
+    <script type="module" src="src/requestToken.js"></script>
     <script type="module" src="src/geminiClient.js"></script>
+    <script type="module" src="src/autoCaptureController.js"></script>
     <script type="module" src="src/ui.js"></script>
+    <!-- Register Service Worker for PWA -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('service-worker.js')
+                    .then(reg => console.log('Service Worker registered', reg))
+                    .catch(err => console.error('Service Worker registration failed:', err));
+            });
+        }
+    </script>
 </body>
 
 </html>

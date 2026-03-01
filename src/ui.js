@@ -8,28 +8,31 @@ import { cameraManager } from './camera.js';
 import { colorDetector } from './colorDetection.js';
 import { cubeState } from './cubeState.js';
 import { cubeValidator } from './validator.js';
-import { optimalSolver } from './optimalSolver.js'; // Kociemba + LBL fallback
-import { cubeSolver as lblSolver } from './solver.js';        // groupMovesByPhase
+import { optimalSolver } from './optimalSolver.js';
+import { cubeSolver as lblSolver } from './solver.js';
+import { Solver2x2 } from './solver2x2.js';
 import { cubeVisualizer } from './visualizer.js';
 import { geminiClient } from './geminiClient.js';
 import { AutoCaptureController } from './autoCaptureController.js';
 import { solutionAnimator } from './solutionAnimator.js';
+import { ManualEntryController } from './manualEntry.js';
+import { generateScramble, applyScramble, stateStringToFaces } from './scrambleManager.js';
+
+const solver2x2 = new Solver2x2();
 
 class UIController {
     constructor() {
         this.currentSection = 'capture';
         this.threeScene = null;
         this._autoCapture = null;
+        this.cubeSize = 3;           // 2 or 3
+        this.solveMethod = 'optimal';   // 'optimal' | 'lbl'
 
         this._initElements();
         this._attachListeners();
         this._initialize3D();
         this.updateUI();
     }
-
-    // -------------------------------------------------------------------------
-    // Init
-    // -------------------------------------------------------------------------
 
     async _initialize3D() {
         try {
@@ -44,6 +47,7 @@ class UIController {
     }
 
     _initElements() {
+        // Main flow buttons
         this.startCameraBtn = document.getElementById('start-camera-btn');
         this.captureFaceBtn = document.getElementById('capture-face-btn');
         this.recaptureBtn = document.getElementById('recapture-btn');
@@ -53,18 +57,19 @@ class UIController {
         this.solveBtn = document.getElementById('solve-btn');
         this.newCubeBtn = document.getElementById('new-cube-btn');
 
-        this.currentFaceLabel = document.getElementById('current-face');
+        // Labels & State
+        this.currentFaceLabel = document.getElementById('current-face-label');
         this.errorMessage = document.getElementById('error-message');
         this.validationResult = document.getElementById('validation-result');
         this.solvingStatus = document.getElementById('solving-status');
         this.solutionMoves = document.getElementById('solution-moves');
         this.geminiExplanation = document.getElementById('gemini-explanation');
+        this.faceDots = document.querySelectorAll('.face-dot');
 
+        // Sections
         this.captureSection = document.getElementById('capture-section');
         this.visualizationSection = document.getElementById('visualization-section');
         this.solutionSection = document.getElementById('solution-section');
-
-        this.faceDots = document.querySelectorAll('.face-dot');
 
         // Animator controls
         this.animatorControls = document.getElementById('animator-controls');
@@ -74,77 +79,91 @@ class UIController {
         this.animBackBtn = document.getElementById('anim-back-btn');
         this.animForwardBtn = document.getElementById('anim-forward-btn');
         this.animResetBtn = document.getElementById('anim-reset-btn');
+
+        // New feature elements
+        this.cubeSizeSelect = document.getElementById('cube-size-select');
+        this.solveMethodSelect = document.getElementById('solve-method-select');
+        this.generateScrambleBtn = document.getElementById('generate-scramble-btn');
+        this.manualEntryBtn = document.getElementById('manual-entry-btn');
+        this.manualEntryPanel = document.getElementById('manual-entry-panel');
+        this.cameraViewPanel = document.querySelector('.camera-view');
+        this.scrambleDisplay = document.getElementById('scramble-display');
     }
 
     _attachListeners() {
-        this.startCameraBtn.addEventListener('click', () => this._handleStartCamera());
-        this.captureFaceBtn.addEventListener('click', () => this._handleCaptureFace());
-        this.recaptureBtn.addEventListener('click', () => this._handleRecapture());
-        this.resetCaptureBtn.addEventListener('click', () => this._handleReset());
-        this.validateBtn.addEventListener('click', () => this._handleValidate());
-        this.backToCaptureBtn.addEventListener('click', () => this._showSection('capture'));
-        this.solveBtn.addEventListener('click', () => this._handleSolve());
-        this.newCubeBtn.addEventListener('click', () => this._handleNewCube());
+        this.startCameraBtn?.addEventListener('click', () => this._handleStartCamera());
+        this.captureFaceBtn?.addEventListener('click', () => this._handleCaptureFace());
+        this.recaptureBtn?.addEventListener('click', () => this._handleRecapture());
+        this.resetCaptureBtn?.addEventListener('click', () => this._handleReset());
+        this.validateBtn?.addEventListener('click', () => this._handleValidate());
+        this.backToCaptureBtn?.addEventListener('click', () => this._showSection('capture'));
+        this.solveBtn?.addEventListener('click', () => this._handleSolve());
+        this.newCubeBtn?.addEventListener('click', () => this._handleNewCube());
 
         // Animator controls
-        if (this.animPlayBtn) {
-            this.animPlayBtn.addEventListener('click', () => this._togglePlay());
-            this.animBackBtn.addEventListener('click', () => { solutionAnimator.stepBack(); this._syncAnimatorUI(); });
-            this.animForwardBtn.addEventListener('click', () => { solutionAnimator.stepForward(); this._syncAnimatorUI(); });
-            this.animResetBtn.addEventListener('click', () => { solutionAnimator.reset(); this._syncAnimatorUI(); });
-        }
+        this.animPlayBtn?.addEventListener('click', () => this._togglePlay());
+        this.animBackBtn?.addEventListener('click', () => { solutionAnimator.stepBack(); this._syncAnimatorUI(); });
+        this.animForwardBtn?.addEventListener('click', () => { solutionAnimator.stepForward(); this._syncAnimatorUI(); });
+        this.animResetBtn?.addEventListener('click', () => { solutionAnimator.reset(); this._syncAnimatorUI(); });
 
-        // Release camera when page is hidden to be a good resource citizen
+        // Options listeners
+        this.cubeSizeSelect?.addEventListener('change', (e) => {
+            this.cubeSize = parseInt(e.target.value);
+            cubeState.setSize(this.cubeSize);
+            this._handleReset();
+        });
+        this.solveMethodSelect?.addEventListener('change', (e) => {
+            this.solveMethod = e.target.value;
+        });
+        this.generateScrambleBtn?.addEventListener('click', () => this._handleGenerateScramble());
+        this.manualEntryBtn?.addEventListener('click', () => this._toggleManualEntry());
+
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) this._stopDetection();
         });
     }
 
-    // -------------------------------------------------------------------------
-    // Camera & detection
-    // -------------------------------------------------------------------------
-
-    async _handleStartCamera() {
+    _handleStartCamera() {
         this._showError('');
-        const result = await cameraManager.startCamera();
-        if (result.success) {
-            this.startCameraBtn.textContent = 'Camera Active';
-            this.startCameraBtn.disabled = true;
-            this.captureFaceBtn.disabled = false;
-            this._startDetection();
-        } else {
-            this._showError(result.error);
-        }
+        cameraManager.startCamera().then(result => {
+            if (result.success) {
+                this.startCameraBtn.textContent = 'Camera Active';
+                this.startCameraBtn.disabled = true;
+                this.captureFaceBtn.disabled = false;
+                this._startDetection();
+            } else {
+                this._showError(result.error);
+            }
+        });
     }
 
     _startDetection() {
-        this._stopDetection(); // Idempotent — kills any existing interval first
-
+        this._stopDetection();
         const videoContainer = document.querySelector('.video-container');
 
         this._autoCapture = new AutoCaptureController({
-            cameraManager: cameraManager,
-            colorDetector: colorDetector,
-            cubeState: cubeState,
+            cameraManager,
+            colorDetector,
+            cubeState,
             intervalMs: 200,
             stabilityThreshold: 5,
 
             onColorUpdate: (colors) => {
                 this._updateGridOverlay(colors);
-                const hasUnknown = colors.some(c => c.color === 'unknown');
-                if (hasUnknown) {
+                if (colors.some(c => c.color === 'unknown')) {
                     videoContainer.classList.remove('scanning-locked');
                     videoContainer.classList.add('scanning-active');
                 }
             },
-
             onCenterDetected: (color) => {
-                this._updateFaceFromCenter(color);
+                const map = { white: 'U', yellow: 'D', green: 'F', blue: 'B', red: 'R', orange: 'L' };
+                if (map[color]) {
+                    cubeState.currentFace = map[color];
+                    this.updateUI();
+                }
             },
-
-            onStable: (colors) => {
+            onStable: () => {
                 videoContainer.classList.add('scanning-locked');
-                // Debounce: disable auto-capture for 2 s after each trigger
                 this._autoCapture.setCapturing(true);
                 this._handleCaptureFace();
                 setTimeout(() => {
@@ -165,47 +184,20 @@ class UIController {
         }
     }
 
-    _updateFaceFromCenter(color) {
-        const colorMap = {
-            white: 'U', yellow: 'D', green: 'F',
-            blue: 'B', red: 'R', orange: 'L'
-        };
-        const face = colorMap[color];
-        if (face) {
-            cubeState.currentFace = face;
-            this.updateUI();
-        }
-    }
-
     _updateGridOverlay(colors) {
         const cells = document.querySelectorAll('.grid-cell');
         colors.forEach((cell, i) => {
-            if (cells[i]) {
-                cells[i].className = `grid-cell ${cell.color !== 'unknown' ? 'detected' : ''}`;
-            }
+            if (cells[i]) cells[i].className = `grid-cell ${cell.color !== 'unknown' ? 'detected' : ''}`;
         });
     }
 
-    // -------------------------------------------------------------------------
-    // Capture / reset
-    // -------------------------------------------------------------------------
-
-    async _handleCaptureFace() {
+    _handleCaptureFace() {
         const video = cameraManager.getVideoElement();
         const colors = colorDetector.detectFaceColors(video);
 
         if (!colors) {
-            this._showError('Failed to detect colors. Ensure the cube is properly positioned.');
+            this._showError('Failed to detect colors. Ensure cube is properly positioned.');
             return;
-        }
-
-        const validation = cubeValidator.validateFace(colors);
-        if (!validation.valid && !validation.warning) {
-            this._showError(validation.error);
-            return;
-        }
-        if (validation.warning) {
-            this._showError(validation.error || validation.warning, 'warning');
         }
 
         const face = cubeState.getCurrentFace();
@@ -213,11 +205,11 @@ class UIController {
         this.updateUI();
 
         if (cubeState.isComplete()) {
-            this._showError('All faces captured! Click "Validate Cube State" to proceed.', 'success');
+            this._showError('All faces captured! Validate Cube State to proceed.', 'success');
             setTimeout(() => {
                 this._showSection('visualization');
                 cubeVisualizer.render(cubeState);
-            }, 1500);
+            }, 1000);
         }
     }
 
@@ -231,37 +223,95 @@ class UIController {
     _handleReset() {
         cubeState.reset();
         this._stopDetection();
-        cameraManager.stopCamera(); // Stop camera on full reset
+        cameraManager.stopCamera();
         this.startCameraBtn.disabled = false;
         this.startCameraBtn.textContent = 'Start Camera';
         this.captureFaceBtn.disabled = true;
+        if (this.scrambleDisplay) {
+            this.scrambleDisplay.textContent = '';
+            this.scrambleDisplay.classList.add('hidden');
+        }
         this.updateUI();
         this._showError('');
     }
 
-    // -------------------------------------------------------------------------
-    // Validate
-    // -------------------------------------------------------------------------
+    // New features -----------------------------------------------------------
+
+    _toggleManualEntry() {
+        if (!this._manualController) {
+            this._manualController = new ManualEntryController(cubeState, () => {
+                this._stopDetection();
+                cameraManager.stopCamera();
+                this._showSection('visualization');
+                cubeVisualizer.render(cubeState);
+            });
+            this._manualController.mount(this.manualEntryPanel);
+        }
+
+        // Hide camera UI, show manual UI
+        this.cameraViewPanel.style.display = 'none';
+        this.manualEntryPanel.style.display = 'block';
+        this.startCameraBtn.style.display = 'none';
+        this.manualEntryBtn.style.display = 'none';
+
+        const backBtn = document.createElement('button');
+        backBtn.className = 'btn btn-secondary';
+        backBtn.textContent = '← Back to Camera';
+        backBtn.onclick = () => {
+            this.manualEntryPanel.style.display = 'none';
+            this.cameraViewPanel.style.display = 'block';
+            this.startCameraBtn.style.display = 'inline-block';
+            this.manualEntryBtn.style.display = 'inline-block';
+            backBtn.remove();
+        };
+        this.manualEntryPanel.appendChild(backBtn);
+    }
+
+    _handleGenerateScramble() {
+        const movesStr = this.cubeSize === 2
+            ? Solver2x2.generateScramble()
+            : generateScramble();
+
+        // Apply scramble programmatically to skip scanning
+        const movesArr = movesStr.split(' ');
+        const stateStr = this.cubeSize === 2
+            ? Solver2x2.applyScrample(movesArr)
+            : applyScramble(movesArr);
+
+        // Populate cube state directly
+        cubeState.reset();
+        const facesDict = stateStringToFaces(stateStr, this.cubeSize);
+        Object.entries(facesDict).forEach(([face, colors]) => {
+            cubeState.captureFace(face, colors);
+        });
+
+        if (this.scrambleDisplay) {
+            this.scrambleDisplay.textContent = `Scramble applied: ${movesStr}`;
+            this.scrambleDisplay.classList.remove('hidden');
+        }
+
+        this._stopDetection();
+        cameraManager.stopCamera();
+        this.updateUI();
+        setTimeout(() => {
+            this._showSection('visualization');
+            cubeVisualizer.render(cubeState);
+        }, 800);
+    }
+
+    // ------------------------------------------------------------------------
 
     _handleValidate() {
         const validation = cubeValidator.validate(cubeState);
-        const summary = cubeValidator.getValidationSummary(validation);
 
-        this.validationResult.className = `validation-result ${summary.type}`;
-        this.validationResult.innerHTML = `
-            <h4>${summary.message}</h4>
-            <pre>${summary.details}</pre>
-        `;
+        this.validationResult.className = `validation-result ${validation.valid ? 'success' : validation.warning ? 'warning' : 'error'}`;
+        this.validationResult.innerHTML = `<h4>${validation.valid ? 'Setup Validated' : 'Validation Error'}</h4>`;
         this.validationResult.classList.remove('hidden');
 
         if (validation.valid) {
-            setTimeout(() => this._showSection('solution'), 2000);
+            setTimeout(() => this._showSection('solution'), 1000);
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Solve
-    // -------------------------------------------------------------------------
 
     async _handleSolve() {
         this.solvingStatus.classList.remove('hidden');
@@ -269,33 +319,34 @@ class UIController {
         if (this.animatorControls) this.animatorControls.classList.add('hidden');
         this.solveBtn.disabled = true;
 
-        // Yield to browser to paint spinner
         await new Promise(r => setTimeout(r, 50));
-
         const stateString = cubeState.getStateString();
 
         if (!stateString || stateString.includes('?')) {
-            this.solvingStatus.innerHTML =
-                '<p class="error">Cannot solve: cube state contains unrecognised colors. Re-capture.</p>';
+            this.solvingStatus.innerHTML = '<p class="error">Contains unrecognised colors. Re-capture.</p>';
             this.solveBtn.disabled = false;
             return;
         }
 
-        // Use optimal solver (async Kociemba, falls back to LBL)
-        const result = await optimalSolver.solve(stateString);
+        let result;
+        if (this.cubeSize === 2) {
+            result = await solver2x2.solve(stateString);
+        } else if (this.solveMethod === 'lbl') {
+            result = { ...lblSolver.solve(stateString), method: 'Layer-by-Layer' };
+        } else {
+            result = await optimalSolver.solve(stateString);
+        }
 
         if (result.success) {
             const moves = result.moves;
-            const movesHtml = `
-                <h4>Solution Moves</h4>
+            this.solutionMoves.innerHTML = `
+                <h4>Solution (${result.method || 'Optimal'}) — ${this.cubeSize}×${this.cubeSize}</h4>
                 <div class="move-sequence">${moves.join(' ') || '(Already solved!)'}</div>
                 <p class="move-count">Total moves: ${result.moveCount}</p>
             `;
-            this.solutionMoves.innerHTML = movesHtml;
             this.solutionMoves.classList.remove('hidden');
             this.solvingStatus.classList.add('hidden');
 
-            // Set up step-through animation
             if (moves.length > 0 && this.threeScene && this.animatorControls) {
                 solutionAnimator.load(moves, this.threeScene);
                 solutionAnimator
@@ -307,12 +358,9 @@ class UIController {
                 this.animatorControls.classList.remove('hidden');
                 this._syncAnimatorUI();
             }
-
-            // Stream or fetch Gemini explanation
             this._getExplanation(moves);
         } else {
-            this.solvingStatus.innerHTML =
-                `<p class="error">Solver error: ${result.error}. The cube state may be physically impossible.</p>`;
+            this.solvingStatus.innerHTML = `<p class="error">Solver error: ${result.error}</p>`;
             this.solveBtn.disabled = false;
         }
     }
@@ -326,18 +374,15 @@ class UIController {
         `;
         try {
             const grouped = lblSolver.groupMovesByPhase(moves);
-            // Use streaming if available, otherwise batch request
             if (geminiClient.supportsStreaming) {
                 await geminiClient.explainSolutionStreaming(moves, grouped,
-                    (chunk) => { this.geminiExplanation.innerHTML += chunk; },
+                    chunk => { this.geminiExplanation.innerHTML += chunk; },
                     () => { }
                 );
             } else {
-                const explanation = await geminiClient.explainSolution(moves, grouped);
-                this.geminiExplanation.innerHTML = explanation;
+                this.geminiExplanation.innerHTML = await geminiClient.explainSolution(moves, grouped);
             }
         } catch (err) {
-            console.error('Explanation error:', err);
             this.geminiExplanation.innerHTML = '<p class="error">Failed to load AI explanation.</p>';
         }
     }
@@ -357,62 +402,34 @@ class UIController {
         const t = total ?? solutionAnimator.totalMoves;
         if (this.animCurrent) this.animCurrent.textContent = i;
         if (this.animTotal) this.animTotal.textContent = t;
-        // Update play/pause label
         if (this.animPlayBtn) {
             this.animPlayBtn.textContent = solutionAnimator.isPlaying ? '⏸ Pause' : '▶ Play';
         }
-        // Disable controls at boundaries
         if (this.animBackBtn) this.animBackBtn.disabled = i === 0;
         if (this.animForwardBtn) this.animForwardBtn.disabled = i >= t;
     }
 
-    // -------------------------------------------------------------------------
-    // New cube
-
-    // -------------------------------------------------------------------------
-
     _handleNewCube() {
-        this._stopDetection();
-        cameraManager.stopCamera();
-        cubeState.reset();
+        this._handleReset();
         this._showSection('capture');
-        this.startCameraBtn.disabled = false;
-        this.startCameraBtn.textContent = 'Start Camera';
-        this.captureFaceBtn.disabled = true;
-        this.updateUI();
     }
-
-    // -------------------------------------------------------------------------
-    // UI helpers
-    // -------------------------------------------------------------------------
 
     updateUI() {
         const progress = cubeState.getProgress();
-        this.currentFaceLabel.textContent =
-            cubeState.constructor.getFaceLabel(progress.currentFace);
+        this.currentFaceLabel.textContent = cubeState.constructor.getFaceLabel(progress.currentFace);
 
-        // 3D preview
         if (this.threeScene) {
             this.threeScene.rotateToFace(progress.currentFace);
-            const allFaces = cubeState.getAllFaces();
-            Object.entries(allFaces).forEach(([faceKey, colors]) => {
-                if (colors) {
-                    colors.forEach((colorData, idx) => {
-                        this.threeScene.updateSticker(faceKey, idx, colorData.color);
-                    });
-                }
+            Object.entries(cubeState.getAllFaces()).forEach(([faceKey, colors]) => {
+                if (colors) colors.forEach((c, idx) => this.threeScene.updateSticker(faceKey, idx, c.color));
             });
         }
 
-        // Face progress dots
         this.faceDots.forEach(dot => {
             const face = dot.dataset.face;
             dot.classList.remove('active', 'completed');
-            if (cubeState.getFaceData(face)) {
-                dot.classList.add('completed');
-            } else if (face === progress.currentFace) {
-                dot.classList.add('active');
-            }
+            if (cubeState.getFaceData(face)) dot.classList.add('completed');
+            else if (face === progress.currentFace) dot.classList.add('active');
         });
 
         this.recaptureBtn.disabled = progress.completed === 0;
@@ -422,12 +439,12 @@ class UIController {
         [this.captureSection, this.visualizationSection, this.solutionSection]
             .forEach(el => el.classList.remove('active'));
 
-        const map = {
+        ({
             capture: this.captureSection,
             visualization: this.visualizationSection,
             solution: this.solutionSection
-        };
-        map[section]?.classList.add('active');
+        })[section]?.classList.add('active');
+
         this.currentSection = section;
     }
 
@@ -441,7 +458,7 @@ class UIController {
 
         const styles = {
             warning: { bg: '#fef3c7', color: '#92400e', border: '#f59e0b' },
-            success: { bg: '#d1fae5', color: '#065f46', border: '#10b981' }
+            success: { bg: '#d1fae5', color: '#d1fae5', border: '#10b981' } // using tailwind colors approx
         };
         const s = styles[type];
         if (s) {
@@ -453,4 +470,6 @@ class UIController {
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => new UIController());
+document.addEventListener('DOMContentLoaded', () => {
+    window.uiController = new UIController();
+});

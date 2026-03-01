@@ -9,8 +9,16 @@
 
 export class CubeState {
     constructor() {
+        this.size = 3;
         this.reset();
-        this.faceOrder = ['F', 'R', 'B', 'L', 'U', 'D'];
+        this.faceOrder = ['U', 'R', 'F', 'D', 'L', 'B']; // WCA standard capture order
+    }
+
+    setSize(size) {
+        if (size === 2 || size === 3) {
+            this.size = size;
+            this.reset();
+        }
     }
 
     reset() {
@@ -86,19 +94,29 @@ export class CubeState {
         if (this._colorToFaceMap) return this._colorToFaceMap;
 
         const map = {};
-        // Iterate in fixed canonical order — do NOT use Object.entries() here,
-        // as property enumeration order can differ across V8 versions and
-        // between local dev and CI, causing non-deterministic color→face mappings.
-        const CANONICAL_FACES = ['U', 'R', 'F', 'D', 'L', 'B'];
-        for (const faceKey of CANONICAL_FACES) {
-            const cells = this.state[faceKey];
-            if (cells && cells.length === 9) {
-                const centerColor = cells[4].color;
-                if (centerColor && centerColor !== 'unknown') {
-                    map[centerColor] = faceKey;
+
+        if (this.size === 3) {
+            const CANONICAL_FACES = ['U', 'R', 'F', 'D', 'L', 'B'];
+            for (const faceKey of CANONICAL_FACES) {
+                const cells = this.state[faceKey];
+                if (cells && cells.length === 9) {
+                    const centerColor = cells[4].color;
+                    if (centerColor && centerColor !== 'unknown') {
+                        map[centerColor] = faceKey;
+                    }
                 }
             }
+        } else {
+            // 2x2 has no centers, so we assume a standard color scheme
+            // matching the hardcoded CENTER_COLORS from manualEntry.js
+            map['white'] = 'U';
+            map['red'] = 'R';
+            map['green'] = 'F';
+            map['yellow'] = 'D';
+            map['orange'] = 'L';
+            map['blue'] = 'B';
         }
+
         this._colorToFaceMap = map;
         return map;
     }

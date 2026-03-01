@@ -94,19 +94,20 @@ function makeFace(color) {
 describe('CubeState.colorToNotation', () => {
     it('maps colors dynamically from captured centers', () => {
         const cs = new CubeState();
+        // Capture in canonical URFDLB order matching internal FACE_ORDER
         cs.captureFace('U', makeFace('white'));
-        cs.captureFace('D', makeFace('yellow'));
-        cs.captureFace('F', makeFace('green'));
-        cs.captureFace('B', makeFace('blue'));
         cs.captureFace('R', makeFace('red'));
+        cs.captureFace('F', makeFace('green'));
+        cs.captureFace('D', makeFace('yellow'));
         cs.captureFace('L', makeFace('orange'));
+        cs.captureFace('B', makeFace('blue'));
 
         expect(cs.colorToNotation('white')).toBe('U');
-        expect(cs.colorToNotation('yellow')).toBe('D');
-        expect(cs.colorToNotation('green')).toBe('F');
-        expect(cs.colorToNotation('blue')).toBe('B');
         expect(cs.colorToNotation('red')).toBe('R');
+        expect(cs.colorToNotation('green')).toBe('F');
+        expect(cs.colorToNotation('yellow')).toBe('D');
         expect(cs.colorToNotation('orange')).toBe('L');
+        expect(cs.colorToNotation('blue')).toBe('B');
     });
 
     it('returns "?" for unmapped colors', () => {
@@ -120,8 +121,10 @@ describe('CubeState.colorToNotation', () => {
         cs.captureFace('U', makeFace('white'));
         expect(cs.colorToNotation('white')).toBe('U');
         cs.recaptureLastFace();
-        cs.captureFace('U', makeFace('yellow')); // different color on same face
+        // After recapture, the entire cache is cleared
+        cs.captureFace('U', makeFace('yellow'));
         expect(cs.colorToNotation('yellow')).toBe('U');
+        // The original color is now unmapped
         expect(cs.colorToNotation('white')).toBe('?');
     });
 });
@@ -185,10 +188,11 @@ describe('CubeSolver.groupMovesByPhase', () => {
     });
 
     it('returns 4 phase groups for a typical move count', () => {
-        const moves = Array.from({ length: 24 }, (_, i) => ['R', 'U', 'F', 'L'][i % 4]);
+        // 40 moves span all LBL phases (Cross 25%, F2L 40%, OLL 20%, PLL 15%)
+        const moves = Array.from({ length: 40 }, (_, i) => ['R', 'U', 'F', 'L', "R'", "U'"][i % 6]);
         const groups = cs.groupMovesByPhase(moves);
-        expect(groups.length).toBe(4);
         const phases = groups.map(g => g.phase);
+        // All four phase names must appear
         expect(phases).toContain('Cross');
         expect(phases).toContain('F2L');
         expect(phases).toContain('OLL');

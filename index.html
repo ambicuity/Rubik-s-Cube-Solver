@@ -33,23 +33,25 @@
 
     <div class="container">
         <header>
-            <h1><span class="logo-emoji">🎲</span> Rubik's Cube <span class="gradient-text">Solver</span></h1>
+            <h1><span class="logo-emoji">🧊</span> Rubik's Cube <span class="gradient-text">Solver</span></h1>
             <p class="subtitle">Capture your cube with webcam, detect colors, and get step-by-step solutions</p>
 
-            <div class="cube-options-bar">
-                <div class="option-group">
-                    <label for="cube-size-select">Cube Size:</label>
-                    <select id="cube-size-select" class="retro-select">
-                        <option value="3" selected>3×3 (Standard)</option>
-                        <option value="2">2×2 (Pocket)</option>
-                    </select>
-                </div>
-                <div class="option-group">
-                    <label for="solve-method-select">Solve Method:</label>
-                    <select id="solve-method-select" class="retro-select">
-                        <option value="optimal" selected>Optimal (Shortest)</option>
-                        <option value="lbl">Beginner (Layer-by-Layer)</option>
-                    </select>
+            <div class="options-glass-card">
+                <div class="cube-options-bar">
+                    <div class="option-group">
+                        <label for="cube-size-select">Cube Size:</label>
+                        <select id="cube-size-select" class="retro-select">
+                            <option value="3" selected>3×3 (Standard)</option>
+                            <option value="2">2×2 (Pocket)</option>
+                        </select>
+                    </div>
+                    <div class="option-group">
+                        <label for="solve-method-select">Solve Method:</label>
+                        <select id="solve-method-select" class="retro-select">
+                            <option value="optimal" selected>Optimal (Shortest)</option>
+                            <option value="lbl">Beginner (Layer-by-Layer)</option>
+                        </select>
+                    </div>
                 </div>
             </div>
         </header>
@@ -62,7 +64,7 @@
                         <h2>📷 Scan Cube</h2>
                         <div class="capture-header-actions">
                             <button id="generate-scramble-btn" class="btn btn-secondary btn-sm"
-                                title="Generate a random scramble to test the solver without a real cube">🎲
+                                title="Generate a random scramble to test the solver without a real cube">🔀
                                 Scramble</button>
                             <button id="manual-entry-btn" class="btn btn-secondary btn-sm"
                                 title="Click colors manually instead of using the camera">✍️ Manual Entry</button>
@@ -74,9 +76,19 @@
 
                     <!-- Camera UI Panel -->
                     <div class="camera-view">
-                        <p class="instruction">Center the cube face in the grid below.</p>
+                        <p class="instruction">Center the cube face in the guide grid, then click <strong>Capture Face</strong>.</p>
 
                         <div class="video-container">
+                            <!-- Empty state shown before camera starts -->
+                            <div class="camera-empty-state" id="camera-empty-state">
+                                <div class="empty-state-grid">
+                                    <span></span><span></span><span></span>
+                                    <span></span><span></span><span></span>
+                                    <span></span><span></span><span></span>
+                                </div>
+                                <p class="empty-state-msg">📷 Click <strong>Start Camera</strong> to begin scanning</p>
+                                <p class="empty-state-sub">Camera permission will be requested</p>
+                            </div>
                             <video id="video" autoplay playsinline></video>
                             <canvas id="overlay"></canvas>
                             <div class="scan-guide"></div>

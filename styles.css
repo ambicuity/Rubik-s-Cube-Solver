@@ -19,10 +19,10 @@
     --border-color: rgba(30, 41, 59, 0.8);
     --border-color-hover: rgba(51, 65, 85, 0.9);
 
-    /* Gradient Accent */
-    --accent-start: #6366f1;
-    --accent-mid: #8b5cf6;
-    --accent-end: #a855f7;
+    /* Gradient Accent — lightened to WCAG-AA on dark backgrounds */
+    --accent-start: #818cf8;
+    --accent-mid: #a78bfa;
+    --accent-end: #c084fc;
     --accent-gradient: linear-gradient(135deg, var(--accent-start) 0%, var(--accent-mid) 50%, var(--accent-end) 100%);
 
     /* Glow */
@@ -737,17 +737,90 @@ footer {
 }
 .retro-select {
     background: rgba(25, 25, 35, 0.8);
-    color: var(--text);
-    border: 1px solid var(--accent-light);
+    color: var(--text-primary);
+    border: 1px solid var(--accent-start);
     border-radius: 8px;
     padding: 0.4rem 0.8rem;
     font-family: 'Inter', sans-serif;
     outline: none;
     cursor: pointer;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 .retro-select:focus {
-    border-color: var(--primary);
-    box-shadow: 0 0 0 2px rgba(108, 99, 255, 0.2);
+    border-color: var(--accent-mid);
+    box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.25);
+}
+
+/* Options glass card — groups Cube Size + Solve Method selectors (Issue 5) */
+.options-glass-card {
+    display: inline-block;
+    margin: 1.25rem auto 0;
+    padding: 0.875rem 1.5rem;
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+}
+
+/* Camera empty state — shown before camera permission granted (Issue 4) */
+.camera-empty-state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    background: #050a14;
+    z-index: 2;
+    border-radius: inherit;
+    padding: 1.5rem;
+}
+
+.empty-state-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 56px);
+    grid-template-rows: repeat(3, 56px);
+    gap: 6px;
+}
+
+.empty-state-grid span {
+    border: 2px solid rgba(129, 140, 248, 0.35);
+    border-radius: 6px;
+    background: rgba(129, 140, 248, 0.04);
+    animation: emptyPulse 2.5s ease-in-out infinite;
+}
+
+.empty-state-grid span:nth-child(even) {
+    animation-delay: 0.4s;
+}
+
+.empty-state-grid span:nth-child(3n) {
+    animation-delay: 0.8s;
+}
+
+@keyframes emptyPulse {
+    0%, 100% { opacity: 0.4; }
+    50%       { opacity: 0.9; }
+}
+
+.empty-state-msg {
+    color: var(--text-primary);
+    font-size: 1rem;
+    font-weight: 600;
+    text-align: center;
+}
+
+.empty-state-sub {
+    color: var(--text-tertiary);
+    font-size: 0.825rem;
+    text-align: center;
+}
+
+.camera-empty-state.hidden {
+    display: none;
 }
 
 .capture-header-row {

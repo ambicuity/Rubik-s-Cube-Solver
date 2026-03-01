@@ -130,9 +130,12 @@ class UIController {
                 this.startCameraBtn.textContent = 'Camera Active';
                 this.startCameraBtn.disabled = true;
                 this.captureFaceBtn.disabled = false;
+                // Hide the empty-state overlay so the live feed is visible
+                const emptyState = document.getElementById('camera-empty-state');
+                if (emptyState) emptyState.classList.add('hidden');
                 this._startDetection();
             } else {
-                this._showError(result.error);
+                this._showError(result.error || 'Camera access denied. Enable camera permissions and try again.');
             }
         });
     }
@@ -227,6 +230,9 @@ class UIController {
         this.startCameraBtn.disabled = false;
         this.startCameraBtn.textContent = 'Start Camera';
         this.captureFaceBtn.disabled = true;
+        // Restore the empty-state overlay
+        const emptyState = document.getElementById('camera-empty-state');
+        if (emptyState) emptyState.classList.remove('hidden');
         if (this.scrambleDisplay) {
             this.scrambleDisplay.textContent = '';
             this.scrambleDisplay.classList.add('hidden');

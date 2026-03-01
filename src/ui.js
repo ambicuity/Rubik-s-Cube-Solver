@@ -1,53 +1,49 @@
 /**
  * ui.js - Main UI controller
- * Orchestrates all components and handles user interactions
+ * Orchestrates all components and handles user interactions.
+ * Auto-capture state machine delegated to AutoCaptureController.
  */
 
 import { cameraManager } from './camera.js';
 import { colorDetector } from './colorDetection.js';
 import { cubeState } from './cubeState.js';
 import { cubeValidator } from './validator.js';
-import { cubeSolver } from './solver.js';
+import { optimalSolver } from './optimalSolver.js'; // Kociemba + LBL fallback
+import { cubeSolver as lblSolver } from './solver.js';        // groupMovesByPhase
 import { cubeVisualizer } from './visualizer.js';
 import { geminiClient } from './geminiClient.js';
-// Dynamic import used instead of static to prevent crash if Three.js fails to load
+import { AutoCaptureController } from './autoCaptureController.js';
+import { solutionAnimator } from './solutionAnimator.js';
 
 class UIController {
     constructor() {
         this.currentSection = 'capture';
-        this.isCapturing = false;
-        this.detectionInterval = null;
         this.threeScene = null;
+        this._autoCapture = null;
 
-        this.initializeElements();
-        this.attachEventListeners();
-
-        // Initialize 3D Scene asynchronously
-        this.initialize3D();
-
+        this._initElements();
+        this._attachListeners();
+        this._initialize3D();
         this.updateUI();
     }
 
-    async initialize3D() {
+    // -------------------------------------------------------------------------
+    // Init
+    // -------------------------------------------------------------------------
+
+    async _initialize3D() {
         try {
             const module = await import('./threeScene.js');
-            this.ThreeScene = module.ThreeScene;
-            this.threeScene = new this.ThreeScene('cube-3d-container');
-            this.updateUI(); // Update once loaded
-            console.log('3D Scene initialized successfully');
-        } catch (error) {
-            console.warn('Failed to initialize 3D scene. This might be due to network issues loading Three.js.', error);
-            // Hide the 3D container if it fails
-            const container = document.getElementById('cube-3d-container');
-            if (container) container.style.display = 'none';
+            this.threeScene = new module.ThreeScene('cube-3d-container');
+            this.updateUI();
+        } catch (err) {
+            console.warn('3D scene unavailable:', err.message);
+            const el = document.getElementById('cube-3d-container');
+            if (el) el.style.display = 'none';
         }
     }
 
-    /**
-     * Initialize DOM element references
-     */
-    initializeElements() {
-        // Buttons
+    _initElements() {
         this.startCameraBtn = document.getElementById('start-camera-btn');
         this.captureFaceBtn = document.getElementById('capture-face-btn');
         this.recaptureBtn = document.getElementById('recapture-btn');
@@ -57,7 +53,6 @@ class UIController {
         this.solveBtn = document.getElementById('solve-btn');
         this.newCubeBtn = document.getElementById('new-cube-btn');
 
-        // Display elements
         this.currentFaceLabel = document.getElementById('current-face');
         this.errorMessage = document.getElementById('error-message');
         this.validationResult = document.getElementById('validation-result');
@@ -65,234 +60,190 @@ class UIController {
         this.solutionMoves = document.getElementById('solution-moves');
         this.geminiExplanation = document.getElementById('gemini-explanation');
 
-        // Sections
         this.captureSection = document.getElementById('capture-section');
         this.visualizationSection = document.getElementById('visualization-section');
         this.solutionSection = document.getElementById('solution-section');
 
-        // Face dots
         this.faceDots = document.querySelectorAll('.face-dot');
+
+        // Animator controls
+        this.animatorControls = document.getElementById('animator-controls');
+        this.animCurrent = document.getElementById('animator-current');
+        this.animTotal = document.getElementById('animator-total');
+        this.animPlayBtn = document.getElementById('anim-play-btn');
+        this.animBackBtn = document.getElementById('anim-back-btn');
+        this.animForwardBtn = document.getElementById('anim-forward-btn');
+        this.animResetBtn = document.getElementById('anim-reset-btn');
     }
 
-    /**
-     * Attach event listeners
-     */
-    attachEventListeners() {
-        this.startCameraBtn.addEventListener('click', () => this.handleStartCamera());
-        this.captureFaceBtn.addEventListener('click', () => this.handleCaptureFace());
-        this.recaptureBtn.addEventListener('click', () => this.handleRecapture());
-        this.resetCaptureBtn.addEventListener('click', () => this.handleReset());
-        this.validateBtn.addEventListener('click', () => this.handleValidate());
-        this.backToCaptureBtn.addEventListener('click', () => this.showSection('capture'));
-        this.solveBtn.addEventListener('click', () => this.handleSolve());
-        this.newCubeBtn.addEventListener('click', () => this.handleNewCube());
+    _attachListeners() {
+        this.startCameraBtn.addEventListener('click', () => this._handleStartCamera());
+        this.captureFaceBtn.addEventListener('click', () => this._handleCaptureFace());
+        this.recaptureBtn.addEventListener('click', () => this._handleRecapture());
+        this.resetCaptureBtn.addEventListener('click', () => this._handleReset());
+        this.validateBtn.addEventListener('click', () => this._handleValidate());
+        this.backToCaptureBtn.addEventListener('click', () => this._showSection('capture'));
+        this.solveBtn.addEventListener('click', () => this._handleSolve());
+        this.newCubeBtn.addEventListener('click', () => this._handleNewCube());
+
+        // Animator controls
+        if (this.animPlayBtn) {
+            this.animPlayBtn.addEventListener('click', () => this._togglePlay());
+            this.animBackBtn.addEventListener('click', () => { solutionAnimator.stepBack(); this._syncAnimatorUI(); });
+            this.animForwardBtn.addEventListener('click', () => { solutionAnimator.stepForward(); this._syncAnimatorUI(); });
+            this.animResetBtn.addEventListener('click', () => { solutionAnimator.reset(); this._syncAnimatorUI(); });
+        }
+
+        // Release camera when page is hidden to be a good resource citizen
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) this._stopDetection();
+        });
     }
 
-    /**
-     * Handle start camera
-     */
-    async handleStartCamera() {
-        this.showError('');
+    // -------------------------------------------------------------------------
+    // Camera & detection
+    // -------------------------------------------------------------------------
+
+    async _handleStartCamera() {
+        this._showError('');
         const result = await cameraManager.startCamera();
-
         if (result.success) {
             this.startCameraBtn.textContent = 'Camera Active';
             this.startCameraBtn.disabled = true;
             this.captureFaceBtn.disabled = false;
-            this.startColorDetection();
+            this._startDetection();
         } else {
-            this.showError(result.error);
+            this._showError(result.error);
         }
     }
 
-    /**
-     * Start real-time color detection preview
-     */
-    startColorDetection() {
-        let stabilityCounter = 0;
-        let lastColorsJson = '';
-        const STABILITY_THRESHOLD = 5; // Frames required for stability
-        const videoContainer = document.querySelector('.video-container'); // Get container
+    _startDetection() {
+        this._stopDetection(); // Idempotent — kills any existing interval first
 
-        // Update preview every 200ms for smoother auto-detection
-        this.detectionInterval = setInterval(() => {
-            if (cameraManager.isCameraActive()) {
-                const video = cameraManager.getVideoElement();
-                const colors = colorDetector.detectFaceColors(video);
+        const videoContainer = document.querySelector('.video-container');
 
-                if (colors) {
-                    this.updateGridOverlay(colors);
+        this._autoCapture = new AutoCaptureController({
+            cameraManager: cameraManager,
+            colorDetector: colorDetector,
+            cubeState: cubeState,
+            intervalMs: 200,
+            stabilityThreshold: 5,
 
-                    // Auto-detect Face based on Center Color
-                    const centerPiece = colors.find(c => c.position.row === 1 && c.position.col === 1);
-                    if (centerPiece && centerPiece.color !== 'unknown') {
-                        this.updateFaceFromCenter(centerPiece.color);
-                    }
-
-                    // Auto-Capture Logic
-                    const hasUnknown = colors.some(c => c.color === 'unknown');
-
-                    if (!hasUnknown) {
-                        const currentJson = JSON.stringify(colors.map(c => c.color));
-                        if (currentJson === lastColorsJson) {
-                            stabilityCounter++;
-                        } else {
-                            stabilityCounter = 0;
-                            lastColorsJson = currentJson;
-                            // Reset visual state
-                            videoContainer.classList.remove('scanning-locked');
-                            videoContainer.classList.add('scanning-active');
-                        }
-
-                        // Visual Feedback: Border turns green as we lock
-                        if (stabilityCounter > 2) {
-                            videoContainer.classList.add('scanning-locked');
-                        }
-
-                        // If stable and not already captured for this face
-                        if (stabilityCounter >= STABILITY_THRESHOLD) {
-                            const currentFace = cubeState.getCurrentFace();
-                            const faceData = cubeState.getFaceData(currentFace);
-
-                            // Only auto-capture if this face isn't already filled
-                            if (!faceData && !this.isCapturing) {
-                                this.isCapturing = true;
-                                this.handleCaptureFace(); // This now includes validation
-
-                                // Reset capturing flag after a delay to prevent double triggers
-                                setTimeout(() => {
-                                    this.isCapturing = false;
-                                    stabilityCounter = 0; // Reset stability
-                                }, 2000);
-                            }
-                        }
-                    } else {
-                        stabilityCounter = 0;
-                        videoContainer.classList.remove('scanning-locked');
-                        videoContainer.classList.add('scanning-active');
-                    }
+            onColorUpdate: (colors) => {
+                this._updateGridOverlay(colors);
+                const hasUnknown = colors.some(c => c.color === 'unknown');
+                if (hasUnknown) {
+                    videoContainer.classList.remove('scanning-locked');
+                    videoContainer.classList.add('scanning-active');
                 }
+            },
+
+            onCenterDetected: (color) => {
+                this._updateFaceFromCenter(color);
+            },
+
+            onStable: (colors) => {
+                videoContainer.classList.add('scanning-locked');
+                // Debounce: disable auto-capture for 2 s after each trigger
+                this._autoCapture.setCapturing(true);
+                this._handleCaptureFace();
+                setTimeout(() => {
+                    if (this._autoCapture) this._autoCapture.setCapturing(false);
+                    videoContainer.classList.remove('scanning-locked');
+                    videoContainer.classList.add('scanning-active');
+                }, 2000);
             }
-        }, 200);
+        });
+
+        this._autoCapture.start();
     }
 
-    /**
-     * Update the current face selection based on the detected center color
-     */
-    updateFaceFromCenter(color) {
-        // Standard Rubik's Cube Color Scheme
-        // White: Up (U)
-        // Yellow: Down (D)
-        // Green: Front (F)
-        // Blue: Back (B)
-        // Red: Right (R)
-        // Orange: Left (L)
-        // Note: This assumes standard orientation relative to the user holding it.
-        // We will map center colors to Faces assuming the user wants to populate that Face.
-
-        const colorMap = {
-            'white': 'U',
-            'yellow': 'D',
-            'green': 'F',
-            'blue': 'B',
-            'red': 'R',
-            'orange': 'L'
-        };
-
-        const detectedFace = colorMap[color];
-        if (detectedFace) {
-            // Update UI to show we detected this face
-            // We only switch if the user hasn't locked it, but for "Auto" feel, we switch.
-            // However, we need to be careful not to jump around too much.
-            // Let's just update the label for now, or use `cubeState` to set current face?
-            // `cubeState` manages the *sequence*. 
-            // If we want "Random Access" capture, we need to update `cubeState.currentFace`.
-
-            if (this.currentDetectedCenter !== color) {
-                this.currentDetectedCenter = color;
-                // Ideally we update the internal state to point to this face
-                cubeState.currentFace = detectedFace;
-                this.updateUI();
-            }
+    _stopDetection() {
+        if (this._autoCapture) {
+            this._autoCapture.stop();
+            this._autoCapture = null;
         }
     }
 
-    /**
-     * Update grid overlay with detected colors
-     */
-    updateGridOverlay(colors) {
-        const gridCells = document.querySelectorAll('.grid-cell');
-        colors.forEach((cell, index) => {
-            if (gridCells[index]) {
-                const colorClass = cell.color !== 'unknown' ? 'detected' : '';
-                gridCells[index].className = `grid-cell ${colorClass}`;
+    _updateFaceFromCenter(color) {
+        const colorMap = {
+            white: 'U', yellow: 'D', green: 'F',
+            blue: 'B', red: 'R', orange: 'L'
+        };
+        const face = colorMap[color];
+        if (face) {
+            cubeState.currentFace = face;
+            this.updateUI();
+        }
+    }
+
+    _updateGridOverlay(colors) {
+        const cells = document.querySelectorAll('.grid-cell');
+        colors.forEach((cell, i) => {
+            if (cells[i]) {
+                cells[i].className = `grid-cell ${cell.color !== 'unknown' ? 'detected' : ''}`;
             }
         });
     }
 
-    /**
-     * Handle capture face
-     */
-    async handleCaptureFace() {
+    // -------------------------------------------------------------------------
+    // Capture / reset
+    // -------------------------------------------------------------------------
+
+    async _handleCaptureFace() {
         const video = cameraManager.getVideoElement();
         const colors = colorDetector.detectFaceColors(video);
 
         if (!colors) {
-            this.showError('Failed to detect colors. Please ensure the cube is properly positioned.');
+            this._showError('Failed to detect colors. Ensure the cube is properly positioned.');
             return;
         }
 
-        // Validate face
         const validation = cubeValidator.validateFace(colors);
         if (!validation.valid && !validation.warning) {
-            this.showError(validation.error);
+            this._showError(validation.error);
             return;
         }
-
         if (validation.warning) {
-            // Show warning but allow capture
-            this.showError(validation.error || validation.warning, 'warning');
+            this._showError(validation.error || validation.warning, 'warning');
         }
 
-        // Capture the face
-        const currentFace = cubeState.getCurrentFace();
-        cubeState.captureFace(currentFace, colors);
-
+        const face = cubeState.getCurrentFace();
+        cubeState.captureFace(face, colors);
         this.updateUI();
 
-        // Check if all faces captured
         if (cubeState.isComplete()) {
-            this.showError('All faces captured! Click "Validate Cube State" to proceed.', 'success');
+            this._showError('All faces captured! Click "Validate Cube State" to proceed.', 'success');
             setTimeout(() => {
-                this.showSection('visualization');
+                this._showSection('visualization');
                 cubeVisualizer.render(cubeState);
             }, 1500);
         }
     }
 
-    /**
-     * Handle recapture last face
-     */
-    handleRecapture() {
+    _handleRecapture() {
         if (cubeState.recaptureLastFace()) {
             this.updateUI();
-            this.showError('');
+            this._showError('');
         }
     }
 
-    /**
-     * Handle reset
-     */
-    handleReset() {
+    _handleReset() {
         cubeState.reset();
+        this._stopDetection();
+        cameraManager.stopCamera(); // Stop camera on full reset
+        this.startCameraBtn.disabled = false;
+        this.startCameraBtn.textContent = 'Start Camera';
+        this.captureFaceBtn.disabled = true;
         this.updateUI();
-        this.showError('');
+        this._showError('');
     }
 
-    /**
-     * Handle validate
-     */
-    handleValidate() {
+    // -------------------------------------------------------------------------
+    // Validate
+    // -------------------------------------------------------------------------
+
+    _handleValidate() {
         const validation = cubeValidator.validate(cubeState);
         const summary = cubeValidator.getValidationSummary(validation);
 
@@ -304,165 +255,202 @@ class UIController {
         this.validationResult.classList.remove('hidden');
 
         if (validation.valid) {
-            setTimeout(() => {
-                this.showSection('solution');
-            }, 2000);
+            setTimeout(() => this._showSection('solution'), 2000);
         }
     }
 
-    /**
-     * Handle solve
-     */
-    async handleSolve() {
+    // -------------------------------------------------------------------------
+    // Solve
+    // -------------------------------------------------------------------------
+
+    async _handleSolve() {
         this.solvingStatus.classList.remove('hidden');
         this.solutionMoves.classList.add('hidden');
+        if (this.animatorControls) this.animatorControls.classList.add('hidden');
         this.solveBtn.disabled = true;
 
-        // Simulate solving delay
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Yield to browser to paint spinner
+        await new Promise(r => setTimeout(r, 50));
 
         const stateString = cubeState.getStateString();
-        const result = cubeSolver.solve(stateString);
+
+        if (!stateString || stateString.includes('?')) {
+            this.solvingStatus.innerHTML =
+                '<p class="error">Cannot solve: cube state contains unrecognised colors. Re-capture.</p>';
+            this.solveBtn.disabled = false;
+            return;
+        }
+
+        // Use optimal solver (async Kociemba, falls back to LBL)
+        const result = await optimalSolver.solve(stateString);
 
         if (result.success) {
-            // Display moves
+            const moves = result.moves;
             const movesHtml = `
                 <h4>Solution Moves</h4>
-                <div class="move-sequence">${result.moves.join(' ')}</div>
+                <div class="move-sequence">${moves.join(' ') || '(Already solved!)'}</div>
                 <p class="move-count">Total moves: ${result.moveCount}</p>
             `;
             this.solutionMoves.innerHTML = movesHtml;
             this.solutionMoves.classList.remove('hidden');
             this.solvingStatus.classList.add('hidden');
 
-            // Get explanation from Gemini
-            this.getExplanation(result.moves);
+            // Set up step-through animation
+            if (moves.length > 0 && this.threeScene && this.animatorControls) {
+                solutionAnimator.load(moves, this.threeScene);
+                solutionAnimator
+                    .onProgress(() => this._syncAnimatorUI())
+                    .onComplete(() => {
+                        if (this.animPlayBtn) this.animPlayBtn.textContent = '▶ Play';
+                        this._syncAnimatorUI();
+                    });
+                this.animatorControls.classList.remove('hidden');
+                this._syncAnimatorUI();
+            }
+
+            // Stream or fetch Gemini explanation
+            this._getExplanation(moves);
         } else {
-            this.solvingStatus.innerHTML = `<p class="error">Failed to solve: ${result.error}</p>`;
+            this.solvingStatus.innerHTML =
+                `<p class="error">Solver error: ${result.error}. The cube state may be physically impossible.</p>`;
             this.solveBtn.disabled = false;
         }
     }
 
-    /**
-     * Get explanation from Gemini
-     */
-    async getExplanation(moves) {
+    async _getExplanation(moves) {
         this.geminiExplanation.innerHTML = `
             <div class="loading-container">
                 <div class="cube-loader"></div>
                 <p>Asking Gemini for help...</p>
             </div>
         `;
-
         try {
-            const groupedMoves = cubeSolver.groupMovesByPhase(moves);
-            const explanation = await geminiClient.explainSolution(moves, groupedMoves);
-            this.geminiExplanation.innerHTML = explanation;
-        } catch (error) {
-            console.error('Explanation error:', error);
-            this.geminiExplanation.innerHTML = '<p class="error">Failed to load explanation</p>';
+            const grouped = lblSolver.groupMovesByPhase(moves);
+            // Use streaming if available, otherwise batch request
+            if (geminiClient.supportsStreaming) {
+                await geminiClient.explainSolutionStreaming(moves, grouped,
+                    (chunk) => { this.geminiExplanation.innerHTML += chunk; },
+                    () => { }
+                );
+            } else {
+                const explanation = await geminiClient.explainSolution(moves, grouped);
+                this.geminiExplanation.innerHTML = explanation;
+            }
+        } catch (err) {
+            console.error('Explanation error:', err);
+            this.geminiExplanation.innerHTML = '<p class="error">Failed to load AI explanation.</p>';
         }
     }
 
-    /**
-     * Handle new cube
-     */
-    handleNewCube() {
+    _togglePlay() {
+        if (solutionAnimator.isPlaying) {
+            solutionAnimator.pause();
+            if (this.animPlayBtn) this.animPlayBtn.textContent = '▶ Play';
+        } else {
+            solutionAnimator.play();
+            if (this.animPlayBtn) this.animPlayBtn.textContent = '⏸ Pause';
+        }
+    }
+
+    _syncAnimatorUI(idx, total) {
+        const i = idx ?? solutionAnimator.currentIndex;
+        const t = total ?? solutionAnimator.totalMoves;
+        if (this.animCurrent) this.animCurrent.textContent = i;
+        if (this.animTotal) this.animTotal.textContent = t;
+        // Update play/pause label
+        if (this.animPlayBtn) {
+            this.animPlayBtn.textContent = solutionAnimator.isPlaying ? '⏸ Pause' : '▶ Play';
+        }
+        // Disable controls at boundaries
+        if (this.animBackBtn) this.animBackBtn.disabled = i === 0;
+        if (this.animForwardBtn) this.animForwardBtn.disabled = i >= t;
+    }
+
+    // -------------------------------------------------------------------------
+    // New cube
+
+    // -------------------------------------------------------------------------
+
+    _handleNewCube() {
+        this._stopDetection();
+        cameraManager.stopCamera();
         cubeState.reset();
-        this.showSection('capture');
+        this._showSection('capture');
         this.startCameraBtn.disabled = false;
         this.startCameraBtn.textContent = 'Start Camera';
+        this.captureFaceBtn.disabled = true;
         this.updateUI();
     }
 
-    /**
-     * Update UI based on current state
-     */
+    // -------------------------------------------------------------------------
+    // UI helpers
+    // -------------------------------------------------------------------------
+
     updateUI() {
         const progress = cubeState.getProgress();
+        this.currentFaceLabel.textContent =
+            cubeState.constructor.getFaceLabel(progress.currentFace);
 
-        // Update current face label
-        this.currentFaceLabel.textContent = cubeState.constructor.getFaceLabel(progress.currentFace);
-
-        // Update 3D Preview Rotation
+        // 3D preview
         if (this.threeScene) {
             this.threeScene.rotateToFace(progress.currentFace);
-
-            // Update stickers
             const allFaces = cubeState.getAllFaces();
             Object.entries(allFaces).forEach(([faceKey, colors]) => {
                 if (colors) {
-                    colors.forEach((colorData, index) => {
-                        this.threeScene.updateSticker(faceKey, index, colorData.color);
+                    colors.forEach((colorData, idx) => {
+                        this.threeScene.updateSticker(faceKey, idx, colorData.color);
                     });
                 }
             });
         }
 
-        // Update face dots (Legacy/Fallback)
+        // Face progress dots
         this.faceDots.forEach(dot => {
             const face = dot.dataset.face;
-            const faceData = cubeState.getFaceData(face);
-
             dot.classList.remove('active', 'completed');
-
-            if (faceData) {
+            if (cubeState.getFaceData(face)) {
                 dot.classList.add('completed');
             } else if (face === progress.currentFace) {
                 dot.classList.add('active');
             }
         });
 
-        // Update recapture button
         this.recaptureBtn.disabled = progress.completed === 0;
     }
 
-    /**
-     * Show section
-     */
-    showSection(section) {
-        this.captureSection.classList.remove('active');
-        this.visualizationSection.classList.remove('active');
-        this.solutionSection.classList.remove('active');
+    _showSection(section) {
+        [this.captureSection, this.visualizationSection, this.solutionSection]
+            .forEach(el => el.classList.remove('active'));
 
-        if (section === 'capture') {
-            this.captureSection.classList.add('active');
-        } else if (section === 'visualization') {
-            this.visualizationSection.classList.add('active');
-        } else if (section === 'solution') {
-            this.solutionSection.classList.add('active');
-        }
-
+        const map = {
+            capture: this.captureSection,
+            visualization: this.visualizationSection,
+            solution: this.solutionSection
+        };
+        map[section]?.classList.add('active');
         this.currentSection = section;
     }
 
-    /**
-     * Show error message
-     */
-    showError(message, type = 'error') {
+    _showError(message, type = 'error') {
         if (!message) {
             this.errorMessage.classList.add('hidden');
             return;
         }
-
         this.errorMessage.textContent = message;
         this.errorMessage.className = 'error-message';
 
-        if (type === 'warning') {
-            this.errorMessage.style.background = '#fef3c7';
-            this.errorMessage.style.color = '#92400e';
-            this.errorMessage.style.borderColor = '#f59e0b';
-        } else if (type === 'success') {
-            this.errorMessage.style.background = '#d1fae5';
-            this.errorMessage.style.color = '#065f46';
-            this.errorMessage.style.borderColor = '#10b981';
+        const styles = {
+            warning: { bg: '#fef3c7', color: '#92400e', border: '#f59e0b' },
+            success: { bg: '#d1fae5', color: '#065f46', border: '#10b981' }
+        };
+        const s = styles[type];
+        if (s) {
+            this.errorMessage.style.background = s.bg;
+            this.errorMessage.style.color = s.color;
+            this.errorMessage.style.borderColor = s.border;
         }
-
         this.errorMessage.classList.remove('hidden');
     }
 }
 
-// Initialize UI when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    new UIController();
-});
+document.addEventListener('DOMContentLoaded', () => new UIController());

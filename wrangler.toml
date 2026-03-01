@@ -1,0 +1,17 @@
+name = "rubiks-cube-gemini-proxy"
+main = "proxy/gemini-worker.js"
+compatibility_date = "2024-01-01"
+
+# Workers KV namespace for rate limiting
+# Create with: wrangler kv:namespace create RATE_LIMITER
+# Then replace the placeholder ID below.
+[[kv_namespaces]]
+binding = "RATE_LIMITER"
+id      = "2f2a71a33a754a42b73b33eb79a5cbf6"
+
+# Environment variables — secrets are set separately via:
+#   wrangler secret put GEMINI_API_KEY
+#   wrangler secret put HMAC_SECRET
+# Do NOT put secret values in this file.
+[vars]
+ALLOWED_ORIGIN = "https://ambicuity.github.io"

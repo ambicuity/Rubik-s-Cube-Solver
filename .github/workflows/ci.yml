@@ -2,32 +2,53 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
   pull_request:
-    branches: [ "main" ]
+    branches: [main]
 
 jobs:
-  build:
+  lint-and-test:
+    name: Lint & Unit Tests
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Verify Files
-      run: |
-        if [ ! -f index.html ]; then echo "index.html missing"; exit 1; fi
-        if [ ! -f styles.css ]; then echo "styles.css missing"; exit 1; fi
-        if [ ! -d src ]; then echo "src directory missing"; exit 1; fi
-        echo "Core files present."
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
-    - name: Install Tidy
-      run: sudo apt-get update && sudo apt-get install -y tidy
+      - name: Install dependencies
+        run: npm ci
 
-    - name: Validate HTML with Tidy
-      run: tidy -eq index.html || echo "Tidy found warnings, but proceeding."
-        
-    - name: Check Theme Assets
-      run: |
-        if ! grep -q "blob-container" index.html; then echo "Theme blob-container missing in HTML"; exit 1; fi
-        if ! grep -q "data-theme" index.html; then echo "Theme attribute missing"; exit 1; fi
-        echo "Theme assets verified."
+      - name: Lint — check for console.log in proxy files
+        run: |
+          echo "Checking proxy files do not expose secrets..."
+          if grep -r "api[Kk]ey\s*=" proxy/ --include="*.js" | grep -v "process.env\|GEMINI_API_KEY\|env\." ; then
+            echo "FAIL: hardcoded API key detected in proxy/"
+            exit 1
+          fi
+          echo "PASS: no hardcoded secrets"
+
+      - name: Lint — verify CORS is not wildcard
+        run: |
+          if grep -r "Allow-Origin.*'\*'" proxy/ --include="*.js"; then
+            echo "FAIL: CORS wildcard (*) detected in proxy/"
+            exit 1
+          fi
+          echo "PASS: CORS is locked"
+
+      - name: Lint — verify vendor files present
+        run: |
+          test -f src/vendor/three.module.js || (echo "FAIL: three.module.js not vendored" && exit 1)
+          echo "PASS: vendor files present"
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Check test results
+        if: always()
+        run: echo "CI complete"

@@ -1,6 +1,10 @@
 /**
  * cubeState.js - Manages the state of the Rubik's Cube
- * Stores captured face data and provides state management
+ * Stores captured face data and provides state management.
+ *
+ * colorToNotation() now derives the color→face map dynamically from
+ * the center stickers captured at runtime, removing the hardcoded
+ * assumption about which color appears on which face.
  */
 
 export class CubeState {
@@ -11,22 +15,22 @@ export class CubeState {
 
     reset() {
         this.state = {
-            U: null, // Up (White)
-            D: null, // Down (Yellow)
-            L: null, // Left (Orange)
-            R: null, // Right (Red)
-            F: null, // Front (Green)
-            B: null  // Back (Blue)
+            U: null, // Up
+            D: null, // Down
+            L: null, // Left
+            R: null, // Right
+            F: null, // Front
+            B: null  // Back
         };
-        this._currentFace = 'F'; // Start with Front
+        this._currentFace = 'F';
         this.captureHistory = [];
-        this.currentFaceIndex = 0; // Legacy index for manual flow if needed
+        this.currentFaceIndex = 0;
+        this._colorToFaceMap = null; // Derived on demand
     }
 
     set currentFace(face) {
         if (['U', 'D', 'L', 'R', 'F', 'B'].includes(face)) {
             this._currentFace = face;
-            // Update legacy index to match
             this.currentFaceIndex = this.faceOrder.indexOf(face);
         }
     }
@@ -35,63 +39,36 @@ export class CubeState {
         return this._currentFace;
     }
 
-    /**
-     * Get current face being captured (Legacy compat)
-     */
-    getCurrentFace() {
-        return this._currentFace;
-    }
+    getCurrentFace() { return this._currentFace; }
 
-    /**
-     * Get next face to capture
-     */
     getNextFace() {
         const idx = this.faceOrder.indexOf(this._currentFace);
-        if (idx < this.faceOrder.length - 1) {
-            return this.faceOrder[idx + 1];
-        }
-        return null;
+        return idx < this.faceOrder.length - 1 ? this.faceOrder[idx + 1] : null;
     }
 
-    /**
-     * Check if all faces are captured
-     */
     isComplete() {
         return Object.values(this.state).every(face => face !== null);
     }
 
-    /**
-     * Get number of captured faces
-     */
     getCapturedCount() {
         return Object.values(this.state).filter(face => face !== null).length;
     }
 
-    /**
-     * Capture face data
-     */
     captureFace(faceKey, colors) {
         this.state[faceKey] = colors;
+        this._colorToFaceMap = null; // Invalidate cached map
         this.captureHistory.push({
             face: faceKey,
-            colors: colors,
+            colors,
             timestamp: Date.now()
         });
-
-        // Auto-advance logic:
-        // For auto-detect workflow, we stick with what the camera sees.
-        // But for manual workflow, we advance the suggested face.
-        // We do NOT forcefully change _currentFace here because auto-detect will handle it.
-        // But we increment index if we perfectly match the sequence.
     }
 
-    /**
-     * Recapture the last face
-     */
     recaptureLastFace() {
         if (this.captureHistory.length > 0) {
             const lastCapture = this.captureHistory.pop();
             this.state[lastCapture.face] = null;
+            this._colorToFaceMap = null;
             this._currentFace = lastCapture.face;
             this.currentFaceIndex = this.faceOrder.indexOf(lastCapture.face);
             return true;
@@ -100,91 +77,82 @@ export class CubeState {
     }
 
     /**
-     * Get cube state in standard notation
-     * Returns a string representing all faces
+     * Build a color→face map derived from the center stickers.
+     * Center sticker is index 4 (middle of the 3×3 grid) for each face.
+     * This replaces the previously hardcoded static mapping and correctly
+     * handles non-standard color schemes (e.g. different manufacturers).
+     */
+    _buildColorToFaceMap() {
+        if (this._colorToFaceMap) return this._colorToFaceMap;
+
+        const map = {};
+        // Iterate in fixed canonical order — do NOT use Object.entries() here,
+        // as property enumeration order can differ across V8 versions and
+        // between local dev and CI, causing non-deterministic color→face mappings.
+        const CANONICAL_FACES = ['U', 'R', 'F', 'D', 'L', 'B'];
+        for (const faceKey of CANONICAL_FACES) {
+            const cells = this.state[faceKey];
+            if (cells && cells.length === 9) {
+                const centerColor = cells[4].color;
+                if (centerColor && centerColor !== 'unknown') {
+                    map[centerColor] = faceKey;
+                }
+            }
+        }
+        this._colorToFaceMap = map;
+        return map;
+    }
+
+    /**
+     * Get cube state in standard notation (54-char string, order: U,R,F,D,L,B).
+     * Each character is the face-key of which face owns that sticker (U/R/F/D/L/B).
      */
     getStateString() {
-        if (!this.isComplete()) {
-            return null;
-        }
+        if (!this.isComplete()) return null;
 
-        let stateString = '';
-
-        // Order: U, R, F, D, L, B (standard cube notation)
+        const colorToFace = this._buildColorToFaceMap();
         const standardOrder = ['U', 'R', 'F', 'D', 'L', 'B'];
+        let str = '';
 
         for (const face of standardOrder) {
             const faceData = this.state[face];
-            if (!faceData) {
-                return null;
-            }
-
-            // Convert color names to notation
+            if (!faceData) return null;
             for (const cell of faceData) {
-                stateString += this.colorToNotation(cell.color);
+                const notation = colorToFace[cell.color];
+                if (!notation) {
+                    console.warn(`Unknown color "${cell.color}" has no center mapping.`);
+                    str += '?';
+                } else {
+                    str += notation;
+                }
             }
         }
 
-        return stateString;
+        return str;
     }
 
     /**
-     * Convert color name to standard notation
+     * Convert a color name to its face notation using the runtime-derived map.
+     * Falls back to '?' for unmapped colors (surfaces cleanly to caller).
      */
     colorToNotation(colorName) {
-        const mapping = {
-            white: 'U',
-            yellow: 'D',
-            red: 'F',
-            orange: 'B',
-            blue: 'R',
-            green: 'L'
-        };
-        return mapping[colorName] || '?';
+        const map = this._buildColorToFaceMap();
+        return map[colorName] || '?';
     }
 
-    /**
-     * Get face data for visualization
-     */
-    getFaceData(faceKey) {
-        return this.state[faceKey];
-    }
+    getFaceData(faceKey) { return this.state[faceKey]; }
 
-    /**
-     * Get all faces data
-     */
-    getAllFaces() {
-        return { ...this.state };
-    }
+    getAllFaces() { return { ...this.state }; }
 
-    /**
-     * Get progress
-     */
     getProgress() {
-        let completed = 0;
-
-        this.faceOrder.forEach(face => {
-            if (this.state[face]) completed++;
-        });
-
-        return {
-            completed,
-            total: 6,
-            currentFace: this._currentFace
-        };
+        const completed = this.faceOrder.filter(f => this.state[f]).length;
+        return { completed, total: 6, currentFace: this._currentFace };
     }
 
-    /**
-     * Get face label for display
-     */
     static getFaceLabel(faceKey) {
         const labels = {
-            F: 'Front (F)',
-            R: 'Right (R)',
-            B: 'Back (B)',
-            L: 'Left (L)',
-            U: 'Top (U)',
-            D: 'Bottom (D)'
+            F: 'Front (F)', R: 'Right (R)', B: 'Back (B)',
+            L: 'Left (L)', U: 'Top (U)', D: 'Bottom (D)'
         };
         return labels[faceKey] || faceKey;
     }
